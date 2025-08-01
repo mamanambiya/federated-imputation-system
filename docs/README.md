@@ -6,6 +6,7 @@ This directory contains comprehensive documentation for the Federated Imputation
 
 ### Setup and Installation
 - **[SETUP.md](./SETUP.md)** - Complete setup and installation guide for the federated imputation system
+- **[ROADMAP.md](./ROADMAP.md)** - Development roadmap and future planning
 
 ### Feature Guides
 - **[MULTI_SERVICE_FEATURE.md](./MULTI_SERVICE_FEATURE.md)** - Multi-service selection functionality for job submission
@@ -40,10 +41,11 @@ The system supports three main API types:
 For new developers, we recommend reading the documentation in this order:
 
 1. [SETUP.md](./SETUP.md) - Get the system running
-2. [GA4GH_IMPLEMENTATION_SUMMARY.md](./GA4GH_IMPLEMENTATION_SUMMARY.md) - Understand the architecture
-3. [ADMIN_SERVICE_SETUP.md](./ADMIN_SERVICE_SETUP.md) - Learn service configuration
-4. [MULTI_SERVICE_FEATURE.md](./MULTI_SERVICE_FEATURE.md) - Understand user workflows
-5. [SERVICE_DETAIL_PAGE.md](./SERVICE_DETAIL_PAGE.md) - User interface details
+2. [ROADMAP.md](./ROADMAP.md) - Understand the project vision and future plans
+3. [GA4GH_IMPLEMENTATION_SUMMARY.md](./GA4GH_IMPLEMENTATION_SUMMARY.md) - Understand the architecture
+4. [ADMIN_SERVICE_SETUP.md](./ADMIN_SERVICE_SETUP.md) - Learn service configuration
+5. [MULTI_SERVICE_FEATURE.md](./MULTI_SERVICE_FEATURE.md) - Understand user workflows
+6. [SERVICE_DETAIL_PAGE.md](./SERVICE_DETAIL_PAGE.md) - User interface details
 
 ## 🆘 Support
 
