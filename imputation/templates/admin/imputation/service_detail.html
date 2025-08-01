@@ -1,0 +1,371 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% load admin_urls %}
+
+{% block title %}{{ service.name }} - Service Details{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+    .service-detail-container {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+    .info-card {
+        background: #f9f9f9;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 15px;
+        margin-bottom: 20px;
+    }
+    .info-card h3 {
+        margin-top: 0;
+        color: #333;
+        border-bottom: 2px solid #417690;
+        padding-bottom: 10px;
+    }
+    .info-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+    .info-item {
+        background: white;
+        padding: 10px;
+        border-radius: 4px;
+        border: 1px solid #eee;
+    }
+    .info-label {
+        font-weight: bold;
+        color: #666;
+        display: inline-block;
+        min-width: 150px;
+    }
+    .info-value {
+        color: #333;
+    }
+    .status-badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 3px;
+        font-size: 12px;
+        font-weight: bold;
+    }
+    .status-active {
+        background: #d4edda;
+        color: #155724;
+    }
+    .status-inactive {
+        background: #f8d7da;
+        color: #721c24;
+    }
+    .panel-list {
+        list-style: none;
+        padding: 0;
+    }
+    .panel-item {
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 10px;
+        margin-bottom: 10px;
+    }
+    .panel-item h4 {
+        margin: 0 0 5px 0;
+        color: #417690;
+    }
+    .panel-meta {
+        color: #666;
+        font-size: 0.9em;
+    }
+    .job-states {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 10px;
+    }
+    .job-state {
+        background: #e9ecef;
+        padding: 5px 10px;
+        border-radius: 3px;
+        font-size: 0.9em;
+    }
+    .job-state.has-jobs {
+        background: #fff3cd;
+        color: #856404;
+        font-weight: bold;
+    }
+    .param-list {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        padding: 10px;
+        margin-top: 10px;
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    .param-item {
+        padding: 5px 0;
+        border-bottom: 1px solid #e9ecef;
+    }
+    .param-item:last-child {
+        border-bottom: none;
+    }
+    .param-name {
+        font-weight: bold;
+        color: #495057;
+    }
+    .param-type {
+        color: #6c757d;
+        font-size: 0.9em;
+    }
+    .param-default {
+        color: #28a745;
+        font-size: 0.9em;
+    }
+    .action-buttons {
+        margin: 20px 0;
+    }
+    .action-buttons a {
+        margin-right: 10px;
+    }
+    .json-view {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        padding: 15px;
+        font-family: monospace;
+        font-size: 0.9em;
+        overflow-x: auto;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    .refresh-info {
+        float: right;
+        font-size: 0.9em;
+        color: #6c757d;
+    }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">Home</a>
+    &rsaquo; <a href="{% url 'admin:app_list' app_label='imputation' %}">Imputation</a>
+    &rsaquo; <a href="{% url 'admin:imputation_imputationservice_changelist' %}">Imputation services</a>
+    &rsaquo; {{ service.name }}
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="service-detail-container">
+    <h1>{{ service.name }}</h1>
+    
+    <div class="action-buttons">
+        <a href="{% url 'admin:imputation_imputationservice_change' service.id %}" class="button">Edit Service</a>
+        <a href="{% url 'admin:imputation_service_setup_edit' service.id %}" class="button">Setup Wizard</a>
+        <a href="{% url 'admin:imputation_sync_panels' service.id %}" class="button">Sync Panels</a>
+        <a href="{% url 'admin:imputation_service_refresh' service.id %}" class="button default">Refresh Info</a>
+    </div>
+
+    <!-- Basic Information -->
+    <div class="info-card">
+        <h3>Basic Information</h3>
+        <div class="info-grid">
+            <div class="info-item">
+                <span class="info-label">Service Type:</span>
+                <span class="info-value">{{ service.get_service_type_display }}</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">API Type:</span>
+                <span class="info-value">{{ service.get_api_type_display }}</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Status:</span>
+                <span class="status-badge {% if service.is_active %}status-active{% else %}status-inactive{% endif %}">
+                    {% if service.is_active %}Active{% else %}Inactive{% endif %}
+                </span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">API URL:</span>
+                <span class="info-value"><a href="{{ service.api_url }}" target="_blank">{{ service.api_url }}</a></span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Max File Size:</span>
+                <span class="info-value">{{ service.max_file_size_mb }} MB</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Supported Formats:</span>
+                <span class="info-value">{{ service.supported_formats|join:", " }}</span>
+            </div>
+        </div>
+        {% if service.description %}
+        <div style="margin-top: 10px;">
+            <span class="info-label">Description:</span>
+            <p style="margin: 5px 0;">{{ service.description }}</p>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if service.api_type == 'ga4gh' and service_info %}
+    <!-- GA4GH Service Information -->
+    <div class="info-card">
+        <h3>GA4GH WES Service Information
+            <span class="refresh-info">
+                {% if cache_age %}
+                    Cached {{ cache_age }} ago
+                {% else %}
+                    Live data
+                {% endif %}
+            </span>
+        </h3>
+        
+        <div class="info-grid">
+            <div class="info-item">
+                <span class="info-label">WES Versions:</span>
+                <span class="info-value">{{ service_info.supported_wes_versions|join:", " }}</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Contact:</span>
+                <span class="info-value">
+                    {% if service_info.contact_info_url %}
+                        <a href="{{ service_info.contact_info_url }}">{{ service_info.contact_info_url }}</a>
+                    {% else %}
+                        Not provided
+                    {% endif %}
+                </span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Auth Instructions:</span>
+                <span class="info-value">
+                    {% if service_info.auth_instructions_url %}
+                        <a href="{{ service_info.auth_instructions_url }}" target="_blank">View Documentation</a>
+                    {% else %}
+                        Not provided
+                    {% endif %}
+                </span>
+            </div>
+        </div>
+
+        <!-- Workflow Engines -->
+        {% if service_info.workflow_engine_versions %}
+        <h4>Workflow Engines</h4>
+        <div class="info-grid">
+            {% for engine, version in service_info.workflow_engine_versions.items %}
+            <div class="info-item">
+                <span class="info-label">{{ engine }}:</span>
+                <span class="info-value">Version {{ version }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- System State -->
+        {% if service_info.system_state_counts %}
+        <h4>System State</h4>
+        <div class="job-states">
+            {% for state, count in service_info.system_state_counts.items %}
+            <div class="job-state {% if count > 0 %}has-jobs{% endif %}">
+                {{ state }}: {{ count }}
+            </div>
+            {% endfor %}
+        </div>
+        <div style="margin-top: 10px;">
+            <strong>Total Jobs:</strong> {{ total_jobs }}
+        </div>
+        {% endif %}
+
+        <!-- Supported Protocols -->
+        {% if service_info.supported_filesystem_protocols %}
+        <h4>Supported Storage Protocols</h4>
+        <div class="info-grid">
+            {% for protocol in service_info.supported_filesystem_protocols %}
+            <div class="info-item">
+                <span class="info-label">{{ protocol|upper }}:</span>
+                <span class="info-value">✓ Supported</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Workflow Parameters -->
+        {% if workflow_params %}
+        <h4>Workflow Parameters</h4>
+        {% for engine, params in workflow_params.items %}
+        <div style="margin-bottom: 20px;">
+            <h5>{{ engine }} Parameters ({{ params|length }})</h5>
+            <div class="param-list">
+                {% for param in params %}
+                <div class="param-item">
+                    <span class="param-name">{{ param.name }}</span>
+                    <span class="param-type">({{ param.type }})</span>
+                    {% if param.default %}
+                    <span class="param-default">= {{ param.default }}</span>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+        {% endif %}
+
+        <!-- Tags -->
+        {% if service_info.tags %}
+        <h4>Service Tags</h4>
+        <div class="info-grid">
+            {% for key, value in service_info.tags.items %}
+            <div class="info-item">
+                <span class="info-label">{{ key }}:</span>
+                <span class="info-value">{{ value }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Reference Panels -->
+    <div class="info-card">
+        <h3>Reference Panels ({{ panels.count }})</h3>
+        {% if panels %}
+        <ul class="panel-list">
+            {% for panel in panels %}
+            <li class="panel-item">
+                <h4>{{ panel.name }}</h4>
+                <div class="panel-meta">
+                    <strong>ID:</strong> {{ panel.panel_id }} |
+                    <strong>Population:</strong> {{ panel.population }} |
+                    <strong>Build:</strong> {{ panel.build }}
+                    {% if panel.samples_count %}
+                    | <strong>Samples:</strong> {{ panel.samples_count|floatformat:0 }}
+                    {% endif %}
+                </div>
+                {% if panel.description %}
+                <p style="margin: 5px 0;">{{ panel.description }}</p>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p>No reference panels configured. <a href="{% url 'admin:imputation_sync_panels' service.id %}">Sync panels from service</a></p>
+        {% endif %}
+    </div>
+
+    <!-- Raw Configuration -->
+    <div class="info-card">
+        <h3>Advanced Configuration</h3>
+        <h4>API Configuration</h4>
+        <div class="json-view">
+            <pre>{{ api_config_json }}</pre>
+        </div>
+        
+        {% if raw_service_info %}
+        <h4 style="margin-top: 20px;">Raw Service Info Response</h4>
+        <div class="json-view">
+            <pre>{{ raw_service_info }}</pre>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %} 

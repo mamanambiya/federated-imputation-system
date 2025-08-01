@@ -1,0 +1,19 @@
+FROM python:3.10-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Copy the entire project including the virtual environment
+COPY . /app/
+
+# Set the PATH to use the local venv
+ENV PATH="/app/venv/bin:$PATH"
+
+# Create necessary directories
+RUN mkdir -p static media uploads
+
+EXPOSE 8000
+
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"] 

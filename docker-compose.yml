@@ -1,0 +1,118 @@
+version: '3.8'
+
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: "1450"
+
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: federated_imputation
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    environment:
+      - SECRET_KEY=django-insecure-dev-key-change-in-production
+      - DEBUG=1
+      - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0,web,192.168.101.147
+      - DB_NAME=federated_imputation
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_HOST=db
+      - DB_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+      - H3AFRICA_API_URL=https://h3africa.org/api/v1/
+      - H3AFRICA_API_KEY=demo_key
+      - MICHIGAN_API_URL=https://imputationserver.sph.umich.edu/api/v2/
+      - MICHIGAN_API_KEY=demo_key
+    volumes:
+      - .:/app
+      - static_volume:/app/static
+      - media_volume:/app/media
+
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A federated_imputation worker --loglevel=info
+    depends_on:
+      - db
+      - redis
+    environment:
+      - SECRET_KEY=django-insecure-dev-key-change-in-production
+      - DEBUG=1
+      - DB_NAME=federated_imputation
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_HOST=db
+      - DB_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+      - H3AFRICA_API_URL=https://h3africa.org/api/v1/
+      - H3AFRICA_API_KEY=demo_key
+      - MICHIGAN_API_URL=https://imputationserver.sph.umich.edu/api/v2/
+      - MICHIGAN_API_KEY=demo_key
+    volumes:
+      - .:/app
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A federated_imputation beat --loglevel=info
+    depends_on:
+      - db
+      - redis
+    environment:
+      - SECRET_KEY=django-insecure-dev-key-change-in-production
+      - DEBUG=1
+      - DB_NAME=federated_imputation
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_HOST=db
+      - DB_PORT=5432
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - .:/app
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://154.114.10.123:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
+  redis_data:
+  static_volume:
+  media_volume: 

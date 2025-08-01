@@ -1,0 +1,316 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+    .form-row {
+        padding: 10px 0;
+        border-bottom: 1px solid #eee;
+    }
+    .form-row label {
+        font-weight: bold;
+        display: inline-block;
+        width: 200px;
+        vertical-align: top;
+    }
+    .form-row .help {
+        color: #666;
+        font-size: 0.9em;
+        margin-left: 200px;
+        display: block;
+    }
+    .test-connection-btn {
+        background: #417690;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-left: 10px;
+    }
+    .test-connection-btn:hover {
+        background: #205067;
+    }
+    .test-result {
+        margin: 10px 0;
+        padding: 10px;
+        border-radius: 4px;
+        display: none;
+    }
+    .test-result.success {
+        background: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+    }
+    .test-result.error {
+        background: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+    }
+    .api-info {
+        background: #e7f3ff;
+        padding: 15px;
+        border-radius: 4px;
+        margin: 10px 0;
+    }
+    .api-info h4 {
+        margin-top: 0;
+    }
+    .api-info ul {
+        margin: 5px 0;
+        padding-left: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">Home</a>
+    &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+    &rsaquo; <a href="{% url 'admin:imputation_imputationservice_changelist' %}">Imputation services</a>
+    &rsaquo; {{ title }}
+</div>
+{% endblock %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+<form method="post" id="service-form">
+    {% csrf_token %}
+    
+    <fieldset class="module aligned">
+        <h2>Basic Information</h2>
+        
+        <div class="form-row">
+            <label for="{{ form.name.id_for_label }}">{{ form.name.label }}:</label>
+            {{ form.name }}
+            {% if form.name.errors %}
+                <ul class="errorlist">{{ form.name.errors }}</ul>
+            {% endif %}
+        </div>
+        
+        <div class="form-row">
+            <label for="{{ form.service_type.id_for_label }}">{{ form.service_type.label }}:</label>
+            {{ form.service_type }}
+            {% if form.service_type.errors %}
+                <ul class="errorlist">{{ form.service_type.errors }}</ul>
+            {% endif %}
+        </div>
+        
+        <div class="form-row">
+            <label for="{{ form.api_type.id_for_label }}">{{ form.api_type.label }}:</label>
+            {{ form.api_type }}
+            {% if form.api_type.errors %}
+                <ul class="errorlist">{{ form.api_type.errors }}</ul>
+            {% endif %}
+            <div class="help">{{ form.api_type.help_text }}</div>
+        </div>
+        
+        <div id="api-type-info" class="api-info" style="display: none;">
+            <h4>API Type Information</h4>
+            <div id="michigan-info" style="display: none;">
+                <p><strong>Michigan Imputation Server API</strong></p>
+                <ul>
+                    <li>Standard API used by Michigan Imputation Server</li>
+                    <li>Requires API key for authentication</li>
+                    <li>Supports job submission and monitoring</li>
+                    <li>Example URL: https://imputationserver.sph.umich.edu</li>
+                </ul>
+            </div>
+            <div id="ga4gh-info" style="display: none;">
+                <p><strong>GA4GH Service Info API (WES)</strong></p>
+                <ul>
+                    <li>Standardized API following GA4GH WES (Workflow Execution Service) specifications</li>
+                    <li>Service discovery through /service-info endpoint</li>
+                    <li>Supports workflow engines like Nextflow (NFL) and Snakemake (SMK)</li>
+                    <li>May use Bearer token authentication</li>
+                    <li>Example URLs:
+                        <ul>
+                            <li>http://elwazi-node.icermali.org:6000/ga4gh/wes/v1</li>
+                            <li>http://ga4gh-starter-kit.ilifu.ac.za:6000/ga4gh/wes/v1</li>
+                            <li>Note: The /service-info endpoint will be automatically appended</li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+            <div id="dnastack-info" style="display: none;">
+                <p><strong>DNASTACK Omics API</strong></p>
+                <ul>
+                    <li>Cloud-native platform for genomic data management and analysis</li>
+                    <li>Requires dnastack-client-library: <code>pip3 install -U dnastack-client-library</code></li>
+                    <li>Uses factory pattern for service discovery</li>
+                    <li>Supports DataConnect for querying genomic datasets</li>
+                    <li>May require Bearer token authentication</li>
+                    <li>Example URL: https://elwazi.omics.ai</li>
+                    <li>Usage example:
+                        <pre>from dnastack import use
+factory = use('elwazi.omics.ai')
+data_connect_client = factory.get('data-connect-name')</pre>
+                    </li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <label for="{{ form.api_url.id_for_label }}">{{ form.api_url.label }}:</label>
+            {{ form.api_url }}
+            <button type="button" class="test-connection-btn" onclick="testConnection()">Test Connection</button>
+            {% if form.api_url.errors %}
+                <ul class="errorlist">{{ form.api_url.errors }}</ul>
+            {% endif %}
+            <div class="help">{{ form.api_url.help_text }}</div>
+            <div id="test-result" class="test-result"></div>
+        </div>
+        
+        <div class="form-row">
+            <label for="{{ form.description.id_for_label }}">{{ form.description.label }}:</label>
+            {{ form.description }}
+            {% if form.description.errors %}
+                <ul class="errorlist">{{ form.description.errors }}</ul>
+            {% endif %}
+        </div>
+        
+        <div class="form-row">
+            <label for="{{ form.is_active.id_for_label }}">{{ form.is_active.label }}:</label>
+            {{ form.is_active }}
+        </div>
+    </fieldset>
+    
+    <fieldset class="module aligned">
+        <h2>API Configuration</h2>
+        
+        <div class="form-row">
+            <label for="{{ form.api_key.id_for_label }}">{{ form.api_key.label }}:</label>
+            {{ form.api_key }}
+            {% if form.api_key.errors %}
+                <ul class="errorlist">{{ form.api_key.errors }}</ul>
+            {% endif %}
+            <div class="help">{{ form.api_key.help_text }}</div>
+        </div>
+        
+        <div class="form-row">
+            <label for="{{ form.api_key_required.id_for_label }}">{{ form.api_key_required.label }}:</label>
+            {{ form.api_key_required }}
+        </div>
+        
+        <div class="form-row">
+            <label for="{{ form.api_config.id_for_label }}">{{ form.api_config.label }}:</label>
+            {{ form.api_config }}
+            {% if form.api_config.errors %}
+                <ul class="errorlist">{{ form.api_config.errors }}</ul>
+            {% endif %}
+            <div class="help">{{ form.api_config.help_text }}</div>
+        </div>
+    </fieldset>
+    
+    <fieldset class="module aligned">
+        <h2>Service Limits</h2>
+        
+        <div class="form-row">
+            <label for="{{ form.max_file_size_mb.id_for_label }}">{{ form.max_file_size_mb.label }}:</label>
+            {{ form.max_file_size_mb }}
+            {% if form.max_file_size_mb.errors %}
+                <ul class="errorlist">{{ form.max_file_size_mb.errors }}</ul>
+            {% endif %}
+        </div>
+        
+        <div class="form-row">
+            <label for="{{ form.supported_formats.id_for_label }}">{{ form.supported_formats.label }}:</label>
+            {{ form.supported_formats }}
+            {% if form.supported_formats.errors %}
+                <ul class="errorlist">{{ form.supported_formats.errors }}</ul>
+            {% endif %}
+            <div class="help">{{ form.supported_formats.help_text }}</div>
+        </div>
+    </fieldset>
+    
+    <div class="submit-row">
+        <input type="submit" value="Save" class="default" />
+        <a href="{% url 'admin:imputation_imputationservice_changelist' %}" class="button">Cancel</a>
+    </div>
+</form>
+
+<script>
+// Show API type information based on selection
+document.getElementById('{{ form.api_type.id_for_label }}').addEventListener('change', function() {
+    const apiTypeInfo = document.getElementById('api-type-info');
+    const michiganInfo = document.getElementById('michigan-info');
+    const ga4ghInfo = document.getElementById('ga4gh-info');
+    const dnastackInfo = document.getElementById('dnastack-info');
+    
+    apiTypeInfo.style.display = 'block';
+    michiganInfo.style.display = 'none';
+    ga4ghInfo.style.display = 'none';
+    dnastackInfo.style.display = 'none';
+    
+    if (this.value === 'michigan') {
+        michiganInfo.style.display = 'block';
+    } else if (this.value === 'ga4gh') {
+        ga4ghInfo.style.display = 'block';
+    } else if (this.value === 'dnastack') {
+        dnastackInfo.style.display = 'block';
+    }
+});
+
+// Trigger change event on page load
+document.getElementById('{{ form.api_type.id_for_label }}').dispatchEvent(new Event('change'));
+
+// Test connection function
+function testConnection() {
+    const apiType = document.getElementById('{{ form.api_type.id_for_label }}').value;
+    const apiUrl = document.getElementById('{{ form.api_url.id_for_label }}').value;
+    const apiKey = document.getElementById('{{ form.api_key.id_for_label }}').value;
+    const resultDiv = document.getElementById('test-result');
+    
+    if (!apiUrl) {
+        alert('Please enter an API URL');
+        return;
+    }
+    
+    resultDiv.innerHTML = 'Testing connection...';
+    resultDiv.className = 'test-result';
+    resultDiv.style.display = 'block';
+    
+    fetch("{% url 'admin:imputation_test_connection' %}", {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify({
+            api_type: apiType,
+            api_url: apiUrl,
+            api_key: apiKey
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            resultDiv.className = 'test-result success';
+            let html = '<strong>✓ Connection successful!</strong><br>';
+            if (data.server_info) {
+                html += '<br><strong>Server Information:</strong><ul>';
+                for (const [key, value] of Object.entries(data.server_info)) {
+                    html += `<li>${key}: ${value}</li>`;
+                }
+                html += '</ul>';
+            }
+            resultDiv.innerHTML = html;
+        } else {
+            resultDiv.className = 'test-result error';
+            resultDiv.innerHTML = `<strong>✗ Connection failed:</strong> ${data.message}`;
+            if (data.details) {
+                resultDiv.innerHTML += `<br><small>${data.details}</small>`;
+            }
+        }
+    })
+    .catch(error => {
+        resultDiv.className = 'test-result error';
+        resultDiv.innerHTML = `<strong>✗ Error:</strong> ${error}`;
+    });
+}
+</script>
+{% endblock %} 
