@@ -29,6 +29,7 @@ import {
   Sync,
   CheckCircle,
   Error,
+  LocationOn,
 } from '@mui/icons-material';
 import { useApi, ImputationService, ReferencePanel } from '../contexts/ApiContext';
 
@@ -260,6 +261,15 @@ const Services: React.FC = () => {
                 <Typography variant="body2" color="text.secondary" paragraph>
                   {service.description || getServiceDescription(service.service_type)}
                 </Typography>
+
+                {service.location && (
+                  <Box display="flex" alignItems="center" mb={2}>
+                    <LocationOn sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
+                    <Typography variant="body2" color="text.secondary">
+                      {service.location}
+                    </Typography>
+                  </Box>
+                )}
 
                 <Box display="flex" flexWrap="wrap" gap={1} mb={2}>
                   <Chip 

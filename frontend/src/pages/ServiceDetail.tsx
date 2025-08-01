@@ -40,6 +40,7 @@ import {
   Link as LinkIcon,
   Security,
   Description,
+  LocationOn,
 } from '@mui/icons-material';
 import { useApi, ImputationService, ReferencePanel } from '../contexts/ApiContext';
 
@@ -278,6 +279,17 @@ const ServiceDetail: React.FC = () => {
                     }
                   />
                 </ListItem>
+                {service.location && (
+                  <ListItem>
+                    <ListItemIcon>
+                      <LocationOn />
+                    </ListItemIcon>
+                    <ListItemText 
+                      primary="Location"
+                      secondary={service.location}
+                    />
+                  </ListItem>
+                )}
                 <ListItem>
                   <ListItemText 
                     primary="Max File Size"

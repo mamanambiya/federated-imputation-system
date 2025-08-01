@@ -26,7 +26,7 @@ class ImputationServiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = ImputationService
         fields = [
-            'id', 'name', 'service_type', 'api_type', 'api_url', 'description',
+            'id', 'name', 'service_type', 'api_type', 'api_url', 'description', 'location',
             'is_active', 'api_key_required', 'max_file_size_mb',
             'supported_formats', 'reference_panels_count', 'api_config', 
             'created_at', 'updated_at'

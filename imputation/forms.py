@@ -27,7 +27,7 @@ class ServiceSetupForm(forms.ModelForm):
         model = ImputationService
         fields = [
             'name', 'service_type', 'api_type', 'api_url', 'api_key',
-            'description', 'is_active', 'api_key_required',
+            'description', 'location', 'is_active', 'api_key_required',
             'max_file_size_mb', 'supported_formats', 'api_config'
         ]
         widgets = {

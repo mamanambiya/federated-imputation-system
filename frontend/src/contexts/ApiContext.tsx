@@ -10,6 +10,7 @@ export interface ImputationService {
   api_url: string;
   api_config?: any;
   description: string;
+  location?: string;
   is_active: boolean;
   api_key_required: boolean;
   max_file_size_mb: number;

@@ -18,9 +18,9 @@ from .admin_views import (
 
 @admin.register(ImputationService)
 class ImputationServiceAdmin(admin.ModelAdmin):
-    list_display = ['name_with_link', 'service_type', 'api_type', 'is_active', 'api_key_required', 'max_file_size_mb', 'panel_count', 'view_details', 'created_at']
+    list_display = ['name_with_link', 'service_type', 'api_type', 'location', 'is_active', 'api_key_required', 'max_file_size_mb', 'panel_count', 'view_details', 'created_at']
     list_filter = ['service_type', 'api_type', 'is_active', 'api_key_required']
-    search_fields = ['name', 'description']
+    search_fields = ['name', 'description', 'location']
     readonly_fields = ['created_at', 'updated_at', 'panel_count']
     
     def name_with_link(self, obj):
