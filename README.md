@@ -25,6 +25,7 @@ A web-based platform for connecting to multiple genomic imputation services, all
 📚 **Comprehensive documentation is available in the [docs/](./docs/) folder:**
 
 - **[Setup Guide](./docs/SETUP.md)** - Detailed installation and configuration instructions
+- **[Implementation Guide](./docs/IMPLEMENTATION_GUIDE.md)** - Complete rebuild guide for developers
 - **[Development Roadmap](./docs/ROADMAP.md)** - Future features and strategic planning
 - **[Admin Setup](./docs/ADMIN_SERVICE_SETUP.md)** - Service configuration and management
 - **[API Integration](./docs/GA4GH_IMPLEMENTATION_SUMMARY.md)** - GA4GH, Michigan, and DNASTACK API details
