@@ -20,6 +20,17 @@ A web-based platform for connecting to multiple genomic imputation services, all
 - **Task Queue**: Celery with Redis for async job processing
 - **Containerization**: Docker and Docker Compose for easy deployment
 
+## Documentation
+
+📚 **Comprehensive documentation is available in the [docs/](./docs/) folder:**
+
+- **[Setup Guide](./docs/SETUP.md)** - Detailed installation and configuration instructions
+- **[Admin Setup](./docs/ADMIN_SERVICE_SETUP.md)** - Service configuration and management
+- **[API Integration](./docs/GA4GH_IMPLEMENTATION_SUMMARY.md)** - GA4GH, Michigan, and DNASTACK API details
+- **[Feature Guides](./docs/)** - Multi-service selection, service details, and more
+
+👉 **Start with the [Documentation Index](./docs/README.md)** for a complete overview of all available guides.
+
 ## Quick Start
 
 ### Prerequisites
