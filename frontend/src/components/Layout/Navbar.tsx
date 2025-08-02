@@ -18,6 +18,7 @@ import {
   Menu as MenuIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
+import Header from './Header';
 
 interface NavbarProps {
   onMenuClick?: () => void;
@@ -60,42 +61,18 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
   };
 
   return (
-    <AppBar
-      position="fixed"
-      sx={{
-        zIndex: (theme) => theme.zIndex.drawer + 1,
-        backgroundColor: 'primary.main',
-      }}
-    >
-      <Toolbar>
-        <IconButton
-          color="inherit"
-          aria-label="open drawer"
-          edge="start"
-          onClick={onMenuClick}
-          sx={{ mr: 2 }}
-        >
-          <MenuIcon />
-        </IconButton>
-        <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center' }}>
-          <img 
-            src="/afrigen-d-logo.png" 
-            alt="AfriGen-D" 
-            style={{ 
-              height: 40, 
-              marginRight: 16,
-              filter: 'brightness(0) invert(1)'  // Make logo white
-            }} 
-          />
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Federated Genomic Imputation Platform
-          </Typography>
-        </Box>
-
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          {user && (
-            <>
-              <Typography variant="body2" sx={{ mr: 2 }}>
+    <>
+      <Header 
+        variant="authenticated" 
+        onMenuClick={onMenuClick}
+      />
+      
+      {/* User Menu (positioned absolute to appear on top of Header) */}
+      <Box sx={{ position: 'fixed', top: 0, right: 0, zIndex: 9999 }}>
+        {user && (
+          <>
+            <Box sx={{ display: 'flex', alignItems: 'center', p: 2 }}>
+              <Typography variant="body2" sx={{ mr: 2, color: 'white' }}>
                 {user.first_name} {user.last_name}
               </Typography>
               <IconButton
@@ -104,46 +81,46 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
                 aria-controls="menu-appbar"
                 aria-haspopup="true"
                 onClick={handleMenu}
-                color="inherit"
+                sx={{ color: 'white' }}
               >
                 <Avatar sx={{ width: 32, height: 32 }}>
                   {user.first_name?.charAt(0) || user.username?.charAt(0)}
                 </Avatar>
               </IconButton>
-              <Menu
-                id="menu-appbar"
-                anchorEl={anchorEl}
-                anchorOrigin={{
-                  vertical: 'bottom',
-                  horizontal: 'right',
-                }}
-                keepMounted
-                transformOrigin={{
-                  vertical: 'top',
-                  horizontal: 'right',
-                }}
-                open={Boolean(anchorEl)}
-                onClose={handleClose}
-              >
-                <MenuItem onClick={handleProfile}>
-                  <AccountCircle sx={{ mr: 1 }} />
-                  Profile
-                </MenuItem>
-                <MenuItem onClick={handleSettings}>
-                  <Settings sx={{ mr: 1 }} />
-                  Settings
-                </MenuItem>
-                <Divider />
-                <MenuItem onClick={handleLogout}>
-                  <Logout sx={{ mr: 1 }} />
-                  Logout
-                </MenuItem>
-              </Menu>
-            </>
-          )}
-        </Box>
-      </Toolbar>
-    </AppBar>
+            </Box>
+            <Menu
+              id="menu-appbar"
+              anchorEl={anchorEl}
+              anchorOrigin={{
+                vertical: 'bottom',
+                horizontal: 'right',
+              }}
+              keepMounted
+              transformOrigin={{
+                vertical: 'top',
+                horizontal: 'right',
+              }}
+              open={Boolean(anchorEl)}
+              onClose={handleClose}
+            >
+              <MenuItem onClick={handleProfile}>
+                <AccountCircle sx={{ mr: 1 }} />
+                Profile
+              </MenuItem>
+              <MenuItem onClick={handleSettings}>
+                <Settings sx={{ mr: 1 }} />
+                Settings
+              </MenuItem>
+              <Divider />
+              <MenuItem onClick={handleLogout}>
+                <Logout sx={{ mr: 1 }} />
+                Logout
+              </MenuItem>
+            </Menu>
+          </>
+        )}
+      </Box>
+    </>
   );
 };
 

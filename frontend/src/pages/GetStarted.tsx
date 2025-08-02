@@ -6,14 +6,7 @@ import {
   Grid,
   Card,
   CardContent,
-  AppBar,
-  Toolbar,
   Button,
-  IconButton,
-  Stepper,
-  Step,
-  StepLabel,
-  StepContent,
   List,
   ListItem,
   ListItemIcon,
@@ -21,17 +14,16 @@ import {
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import {
-  Rocket,
-  ArrowBack,
   AccountCircle,
   CloudUpload,
   PlayArrow,
   Download,
   CheckCircle,
-  GetApp,
   Settings,
+  Rocket,
 } from '@mui/icons-material';
 import Footer from '../components/Layout/Footer';
+import Header from '../components/Layout/Header';
 
 const GetStarted: React.FC = () => {
   const navigate = useNavigate();
@@ -102,61 +94,7 @@ const GetStarted: React.FC = () => {
   return (
     <Box sx={{ minHeight: '100vh' }}>
       {/* Navigation */}
-      <AppBar 
-        position="fixed" 
-        sx={{ 
-          background: 'rgba(255, 255, 255, 0.95)',
-          backdropFilter: 'blur(10px)',
-          color: 'text.primary',
-          boxShadow: '0 2px 10px rgba(0,0,0,0.1)'
-        }}
-      >
-        <Toolbar>
-          <IconButton 
-            edge="start" 
-            color="inherit" 
-            onClick={() => navigate('/')}
-            sx={{ mr: 2 }}
-          >
-            <ArrowBack />
-          </IconButton>
-          
-          <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
-            <img 
-              src="/afrigen-d-logo.png" 
-              alt="AfriGen-D" 
-              style={{ 
-                height: 40, 
-                marginRight: 12
-              }} 
-            />
-            <Typography variant="h6" component="div" sx={{ fontWeight: 'bold', color: '#1e40af' }}>
-              Federated Genomic Imputation Platform
-            </Typography>
-          </Box>
-          
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-            <Button color="inherit" onClick={() => navigate('/')}>Home</Button>
-            <Button color="inherit" onClick={() => navigate('/about')}>About</Button>
-            <Button color="inherit" onClick={() => navigate('/services-info')}>Services</Button>
-            <Button color="inherit" onClick={() => navigate('/documentation')}>Documentation</Button>
-            <Button color="inherit" onClick={() => navigate('/contact')}>Contact</Button>
-            <Button 
-              variant="contained" 
-              onClick={() => navigate('/login')}
-              sx={{ 
-                background: 'linear-gradient(135deg, #1e40af, #0f766e)',
-                '&:hover': {
-                  background: 'linear-gradient(135deg, #1e3a8a, #0d4f49)',
-                }
-              }}
-            >
-              <Rocket sx={{ mr: 1 }} />
-              Access Platform
-            </Button>
-          </Box>
-        </Toolbar>
-      </AppBar>
+      <Header />
 
       {/* Main Content */}
       <Container maxWidth="lg" sx={{ mt: 12, py: 8 }}>
