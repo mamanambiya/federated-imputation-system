@@ -535,6 +535,7 @@ const ServiceDetail: React.FC = () => {
                                   <Button 
                                     variant="text" 
                                     size="small" 
+                                    component="a"
                                     href={serviceInfo.organization.url}
                                     target="_blank"
                                     endIcon={<LinkIcon />}
@@ -554,6 +555,7 @@ const ServiceDetail: React.FC = () => {
                                 <Button 
                                   variant="outlined" 
                                   size="small" 
+                                  component="a"
                                   href={serviceInfo.contactUrl || serviceInfo.contact_info_url}
                                   target="_blank"
                                   startIcon={<Description />}
@@ -570,6 +572,7 @@ const ServiceDetail: React.FC = () => {
                                 <Button 
                                   variant="outlined" 
                                   size="small" 
+                                  component="a"
                                   href={serviceInfo.documentationUrl}
                                   target="_blank"
                                   startIcon={<Description />}
@@ -586,6 +589,7 @@ const ServiceDetail: React.FC = () => {
                                 <Button 
                                   variant="outlined" 
                                   size="small" 
+                                  component="a"
                                   href={serviceInfo.auth_instructions_url}
                                   target="_blank"
                                   startIcon={<Security />}
@@ -879,6 +883,7 @@ const ServiceDetail: React.FC = () => {
                       {serviceInfo.contact_info_url && (
                         <Button
                           size="small"
+                          component="a"
                           startIcon={<Description />}
                           href={serviceInfo.contact_info_url}
                           target="_blank"
@@ -889,6 +894,7 @@ const ServiceDetail: React.FC = () => {
                       {serviceInfo.auth_instructions_url && (
                         <Button
                           size="small"
+                          component="a"
                           startIcon={<Security />}
                           href={serviceInfo.auth_instructions_url}
                           target="_blank"
