@@ -19,6 +19,11 @@ import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
 import LandingPage from './pages/LandingPage';
+import About from './pages/About';
+import ServicesInfo from './pages/ServicesInfo';
+import GetStarted from './pages/GetStarted';
+import Documentation from './pages/Documentation';
+import Contact from './pages/Contact';
 
 const theme = createTheme({
   palette: {
@@ -87,6 +92,12 @@ const UnauthenticatedApp: React.FC = () => {
       <Route path="/" element={<LandingPage />} />
       {/* Alternative landing page route */}
       <Route path="/landing" element={<LandingPage />} />
+      {/* Individual page routes */}
+      <Route path="/about" element={<About />} />
+      <Route path="/services-info" element={<ServicesInfo />} />
+      <Route path="/get-started" element={<GetStarted />} />
+      <Route path="/documentation" element={<Documentation />} />
+      <Route path="/contact" element={<Contact />} />
       {/* Login page */}
       <Route path="/login" element={<Login />} />
       {/* Redirect all other routes to landing page for unauthenticated users */}
