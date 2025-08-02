@@ -107,8 +107,8 @@ class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
                 # GA4GH WES services have a service-info endpoint
                 test_url = f"{service.api_url.rstrip('/')}/service-info"
             elif service.api_type == 'michigan':
-                # Michigan Imputation Server - test root URL
-                test_url = service.api_url
+                # Michigan Imputation Server - use API endpoint for proper API response
+                test_url = f"{service.api_url.rstrip('/')}/api/"
             elif service.api_type == 'dnastack':
                 # DNAstack services - test root URL  
                 test_url = service.api_url
@@ -130,6 +130,17 @@ class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
                     'message': f'Service responded with HTTP {response.status_code}',
                     'test_url': test_url,
                     'response_time_ms': int(response.elapsed.total_seconds() * 1000)
+                }, status=status.HTTP_200_OK)
+            elif service.api_type == 'michigan' and response.status_code == 401:
+                # For Michigan services, HTTP 401 (Unauthorized) indicates the API is online and functioning
+                return Response({
+                    'service_id': service.id,
+                    'service_name': service.name,
+                    'status': 'healthy',
+                    'message': f'Michigan API responded with HTTP {response.status_code} (API online, authentication required)',
+                    'test_url': test_url,
+                    'response_time_ms': int(response.elapsed.total_seconds() * 1000),
+                    'api_response': 'Unauthorized - API is functioning properly'
                 }, status=status.HTTP_200_OK)
             else:
                 return Response({
