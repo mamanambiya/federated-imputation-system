@@ -48,7 +48,15 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
 
   const handleLogout = async () => {
     handleClose();
-    await logout();
+    try {
+      await logout();
+      // Navigate to landing page after successful logout
+      navigate('/');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Even if logout fails, redirect to landing page
+      navigate('/');
+    }
   };
 
   return (
