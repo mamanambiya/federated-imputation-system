@@ -1,5 +1,5 @@
 """
-Django REST Framework views for the imputation app.
+Views for the federated imputation system.
 """
 import logging
 from rest_framework import viewsets, status, permissions
@@ -7,6 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.views import APIView
+from rest_framework.authentication import SessionAuthentication
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse, Http404
 from django.db.models import Q
@@ -28,7 +29,7 @@ from .serializers import (
 )
 from .tasks import (
     submit_imputation_job, cancel_imputation_job,
-    sync_service_reference_panels
+    sync_reference_panels
 )
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,7 @@ class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
         
         if serializer.is_valid():
             # Trigger async task
-            task = sync_service_reference_panels.delay(service.id)
+            task = sync_reference_panels.delay(service.id)
             
             return Response({
                 'message': f'Reference panel sync started for {service.name}',
@@ -429,9 +430,18 @@ class TestView(APIView):
         return Response({'message': 'API is working!', 'method': 'POST', 'data': request.data})
 
 
-@method_decorator(csrf_exempt, name='dispatch')
+class CsrfExemptSessionAuthentication(SessionAuthentication):
+    """
+    SessionAuthentication that bypasses CSRF checks.
+    Use this for API endpoints that need session auth but not CSRF protection.
+    """
+    def enforce_csrf(self, request):
+        return  # Skip CSRF check
+
+
 class LoginView(APIView):
     """API view for user login."""
+    authentication_classes = [CsrfExemptSessionAuthentication]
     permission_classes = [permissions.AllowAny]
     
     def post(self, request):
@@ -464,9 +474,9 @@ class LoginView(APIView):
             )
 
 
-@method_decorator(csrf_exempt, name='dispatch')
 class LogoutView(APIView):
     """API view for user logout."""
+    authentication_classes = [CsrfExemptSessionAuthentication]
     permission_classes = [permissions.IsAuthenticated]
     
     def post(self, request):
@@ -476,6 +486,7 @@ class LogoutView(APIView):
 
 class UserInfoView(APIView):
     """API view to get current user information."""
+    authentication_classes = [CsrfExemptSessionAuthentication]
     permission_classes = [permissions.IsAuthenticated]
     
     def get(self, request):
