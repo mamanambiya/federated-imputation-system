@@ -59,6 +59,7 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useApi } from '../contexts/ApiContext';
+import Footer from '../components/Layout/Footer';
 
 interface ServiceStats {
   total_services: number;
@@ -485,18 +486,11 @@ const LandingPage: React.FC = () => {
               </Card>
             </Grid>
           </Grid>
-          
-          <Typography 
-            variant="body2" 
-            sx={{ 
-              color: 'text.secondary',
-              mt: 4
-            }}
-          >
-            © 2024 AfriGen-D Initiative. Advancing African genomics through federated technologies.
-          </Typography>
         </Container>
       </Box>
+      
+      {/* Footer */}
+      <Footer />
     </Box>
   );
 };
