@@ -1,4 +1,4 @@
-# Federated Imputation System - Development Roadmap
+# Federated Genomic Imputation Platform - Development Roadmap
 
 *Last Updated: August 2025*
 

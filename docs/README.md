@@ -1,6 +1,6 @@
-# Federated Imputation System Documentation
+# Federated Genomic Imputation Platform Documentation
 
-This directory contains comprehensive documentation for the Federated Imputation System.
+This directory contains comprehensive documentation for the Federated Genomic Imputation Platform.
 
 ## 📚 Documentation Index
 

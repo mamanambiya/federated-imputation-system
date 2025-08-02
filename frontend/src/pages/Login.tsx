@@ -66,7 +66,7 @@ const Login: React.FC = () => {
             />
           </Box>
           <Typography component="h1" variant="h4" gutterBottom>
-            Federated Imputation System
+            Federated Genomic Imputation Platform
           </Typography>
           <Typography variant="h6" color="text.secondary" gutterBottom>
             Sign in to your account

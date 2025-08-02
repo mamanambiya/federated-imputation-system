@@ -152,7 +152,7 @@ const LandingPage: React.FC = () => {
               }} 
             />
             <Typography variant="h6" component="div" sx={{ fontWeight: 'bold', color: '#1e40af' }}>
-              Federated Imputation System
+              Federated Genomic Imputation Platform
             </Typography>
           </Box>
           

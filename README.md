@@ -1,4 +1,4 @@
-# Federated Imputation System
+# Federated Genomic Imputation Platform
 
 A web-based platform for connecting to multiple genomic imputation services, allowing users to submit jobs, monitor progress, and download results from both H3Africa and Michigan Imputation Services.
 

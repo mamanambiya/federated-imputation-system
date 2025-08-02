@@ -79,8 +79,8 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
               filter: 'brightness(0) invert(1)'  // Make logo white
             }} 
           />
-          <Typography variant="h6" noWrap component="div">
-            Federated Imputation System
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+            Federated Genomic Imputation Platform
           </Typography>
         </Box>
 
