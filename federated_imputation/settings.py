@@ -139,6 +139,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",  # React frontend
     "http://127.0.0.1:3000",
     "http://192.168.101.147:3000",  # React frontend on host IP
+    "http://154.114.10.123:3000",  # React frontend on actual server IP
 ]
 CORS_ALLOW_CREDENTIALS = True
 
@@ -147,6 +148,7 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000", 
     "http://192.168.101.147:3000",
+    "http://154.114.10.123:3000",  # Server IP
 ]
 
 # Celery Configuration
