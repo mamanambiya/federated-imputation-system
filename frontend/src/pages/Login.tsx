@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Paper,
@@ -11,13 +11,25 @@ import {
 } from '@mui/material';
 import { AccountCircle, Lock } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Redirect authenticated users away from login page
+  useEffect(() => {
+    if (isAuthenticated) {
+      // Get the intended destination from location state, or default to dashboard
+      const from = location.state?.from?.pathname || '/';
+      navigate(from, { replace: true });
+    }
+  }, [isAuthenticated, navigate, location.state]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,7 +38,7 @@ const Login: React.FC = () => {
 
     try {
       await login(username, password);
-      // Redirect will be handled by the auth context/app routing
+      // Redirect is now handled by useEffect when isAuthenticated changes
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {
@@ -122,7 +134,7 @@ const Login: React.FC = () => {
             <Grid container>
               <Grid item xs>
                 <Typography variant="body2" color="text.secondary">
-                  Demo credentials: test_user / test123
+                  Demo credentials: admin / admin123
                 </Typography>
               </Grid>
             </Grid>

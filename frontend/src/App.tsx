@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { CssBaseline, Box, CircularProgress } from '@mui/material';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -84,6 +84,14 @@ const AuthenticatedApp: React.FC = () => {
   );
 };
 
+// Component to handle redirects to login for protected routes
+const RequireAuth: React.FC = () => {
+  const location = useLocation();
+  
+  // Redirect to login with current location stored in state
+  return <Navigate to="/login" state={{ from: location }} replace />;
+};
+
 // Unauthenticated App Content
 const UnauthenticatedApp: React.FC = () => {
   return (
@@ -100,8 +108,8 @@ const UnauthenticatedApp: React.FC = () => {
       <Route path="/contact" element={<Contact />} />
       {/* Login page */}
       <Route path="/login" element={<Login />} />
-      {/* Redirect all other routes to landing page for unauthenticated users */}
-      <Route path="*" element={<Navigate to="/" replace />} />
+      {/* Redirect protected routes to login with location state */}
+      <Route path="*" element={<RequireAuth />} />
     </Routes>
   );
 };
