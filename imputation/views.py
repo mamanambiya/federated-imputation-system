@@ -464,6 +464,7 @@ class LoginView(APIView):
             )
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class LogoutView(APIView):
     """API view for user logout."""
     permission_classes = [permissions.IsAuthenticated]
