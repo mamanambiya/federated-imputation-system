@@ -142,9 +142,19 @@ const LandingPage: React.FC = () => {
         }}
       >
         <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 'bold', color: '#1e40af' }}>
-            📊 eLwazi
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
+            <img 
+              src="/afrigen-d-logo.png" 
+              alt="AfriGen-D" 
+              style={{ 
+                height: 40, 
+                marginRight: 12
+              }} 
+            />
+            <Typography variant="h6" component="div" sx={{ fontWeight: 'bold', color: '#1e40af' }}>
+              eLwazi
+            </Typography>
+          </Box>
           
           {isMobile ? (
             <>
@@ -213,6 +223,16 @@ const LandingPage: React.FC = () => {
         <Container maxWidth="lg" sx={{ position: 'relative', zIndex: 1 }}>
           <Grid container spacing={4} alignItems="center">
             <Grid item xs={12} lg={8}>
+              <Box sx={{ mb: 3, textAlign: { xs: 'center', lg: 'left' } }}>
+                <img 
+                  src="/afrigen-d-logo.png" 
+                  alt="AfriGen-D" 
+                  style={{ 
+                    height: 80,
+                    filter: 'brightness(0) invert(1)', // Make logo white
+                  }} 
+                />
+              </Box>
               <Typography 
                 variant="h2" 
                 component="h1" 

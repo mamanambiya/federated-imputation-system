@@ -22,6 +22,13 @@ import {
   AccordionSummary,
   AccordionDetails,
   LinearProgress,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Badge,
 } from '@mui/material';
 import {
   ArrowBack,
@@ -41,6 +48,19 @@ import {
   Security,
   Description,
   LocationOn,
+  Schedule,
+  DataUsage,
+  Memory,
+  Backup,
+  Api,
+  Public,
+  Computer,
+  Timeline,
+  AccessTime,
+  Engineering,
+  CloudDone,
+  VerifiedUser,
+  Psychology,
 } from '@mui/icons-material';
 import { useApi, ImputationService, ReferencePanel } from '../contexts/ApiContext';
 
@@ -57,6 +77,25 @@ interface ServiceInfo {
     type: string;
     default_value?: any;
   }>;
+  // Additional GA4GH service info fields
+  id?: string;
+  name?: string;
+  type?: {
+    group: string;
+    artifact: string;
+    version: string;
+  };
+  description?: string;
+  organization?: {
+    name: string;
+    url?: string;
+  };
+  contactUrl?: string;
+  documentationUrl?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  environment?: string;
+  version?: string;
 }
 
 const ServiceDetail: React.FC = () => {
@@ -292,20 +331,26 @@ const ServiceDetail: React.FC = () => {
                 )}
                 <ListItem>
                   <ListItemText 
-                    primary="Max File Size"
-                    secondary={`${service.max_file_size_mb} MB`}
-                  />
-                </ListItem>
-                <ListItem>
-                  <ListItemText 
-                    primary="Supported Formats"
-                    secondary={service.supported_formats?.join(', ') || 'VCF, PLINK'}
-                  />
-                </ListItem>
-                <ListItem>
-                  <ListItemText 
                     primary="Authentication Required"
                     secondary={service.api_key_required ? 'Yes' : 'No'}
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemIcon>
+                    <Schedule />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="Created"
+                    secondary={new Date(service.created_at).toLocaleDateString()}
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemIcon>
+                    <AccessTime />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="Last Updated"
+                    secondary={new Date(service.updated_at).toLocaleDateString()}
                   />
                 </ListItem>
               </List>
@@ -313,18 +358,352 @@ const ServiceDetail: React.FC = () => {
           </Card>
         </Grid>
 
+        {/* Service Configuration Card */}
+        <Grid item xs={12} md={6}>
+          <Card>
+            <CardContent>
+              <Box display="flex" alignItems="center" mb={2}>
+                <Engineering sx={{ mr: 1 }} />
+                <Typography variant="h6">Service Configuration</Typography>
+              </Box>
+              
+              <List dense>
+                <ListItem>
+                  <ListItemIcon>
+                    <Api />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="API Type"
+                    secondary={
+                      <Chip 
+                        label={service.api_type?.toUpperCase() || 'UNKNOWN'} 
+                        size="small"
+                        color="primary"
+                        variant="outlined"
+                      />
+                    }
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemIcon>
+                    <DataUsage />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="Max File Size"
+                    secondary={`${service.max_file_size_mb} MB`}
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemIcon>
+                    <Description />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="Supported Formats"
+                    secondary={
+                      <Box display="flex" gap={0.5} flexWrap="wrap" mt={0.5}>
+                        {(service.supported_formats || ['VCF', 'PLINK']).map(format => (
+                          <Chip 
+                            key={format} 
+                            label={format.toUpperCase()} 
+                            size="small" 
+                            variant="outlined"
+                          />
+                        ))}
+                      </Box>
+                    }
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemIcon>
+                    {service.api_key_required ? <Security /> : <Public />}
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary="Authentication"
+                    secondary={
+                      <Chip 
+                        label={service.api_key_required ? 'API Key Required' : 'Public Access'} 
+                        size="small"
+                        color={service.api_key_required ? 'warning' : 'success'}
+                      />
+                    }
+                  />
+                </ListItem>
+                {service.api_config && Object.keys(service.api_config).length > 0 && (
+                  <ListItem>
+                    <ListItemIcon>
+                      <Settings />
+                    </ListItemIcon>
+                    <ListItemText 
+                      primary="Additional Configuration"
+                      secondary={`${Object.keys(service.api_config).length} configuration items`}
+                    />
+                  </ListItem>
+                )}
+              </List>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Service Metadata Card - Enhanced Information */}
+        {serviceInfo && (
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Box display="flex" alignItems="center" mb={2}>
+                  <Psychology sx={{ mr: 1 }} />
+                  <Typography variant="h6">Service Metadata</Typography>
+                </Box>
+                
+                <Grid container spacing={3}>
+                  {/* Service Identity */}
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="subtitle1" gutterBottom>
+                      Service Identity
+                    </Typography>
+                    <TableContainer component={Paper} variant="outlined">
+                      <Table size="small">
+                        <TableBody>
+                          {serviceInfo.id && (
+                            <TableRow>
+                              <TableCell><strong>Service ID</strong></TableCell>
+                              <TableCell>
+                                <Typography variant="body2" sx={{ fontFamily: 'monospace', bgcolor: 'grey.100', p: 0.5, borderRadius: 1 }}>
+                                  {serviceInfo.id}
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                          {serviceInfo.name && (
+                            <TableRow>
+                              <TableCell><strong>Service Name</strong></TableCell>
+                              <TableCell>{serviceInfo.name}</TableCell>
+                            </TableRow>
+                          )}
+                          {serviceInfo.version && (
+                            <TableRow>
+                              <TableCell><strong>Version</strong></TableCell>
+                              <TableCell>
+                                <Chip label={serviceInfo.version} size="small" color="info" />
+                              </TableCell>
+                            </TableRow>
+                          )}
+                          {serviceInfo.environment && (
+                            <TableRow>
+                              <TableCell><strong>Environment</strong></TableCell>
+                              <TableCell>
+                                <Chip 
+                                  label={serviceInfo.environment} 
+                                  size="small" 
+                                  color={serviceInfo.environment === 'production' ? 'success' : 'warning'}
+                                />
+                              </TableCell>
+                            </TableRow>
+                          )}
+                          {serviceInfo.type && (
+                            <TableRow>
+                              <TableCell><strong>Service Type</strong></TableCell>
+                              <TableCell>
+                                <Box>
+                                  <Typography variant="body2">
+                                    {serviceInfo.type.group}/{serviceInfo.type.artifact}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    v{serviceInfo.type.version}
+                                  </Typography>
+                                </Box>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Grid>
+
+                  {/* Organization & Contact */}
+                  <Grid item xs={12} md={6}>
+                    <Typography variant="subtitle1" gutterBottom>
+                      Organization & Contact
+                    </Typography>
+                    <TableContainer component={Paper} variant="outlined">
+                      <Table size="small">
+                        <TableBody>
+                          {serviceInfo.organization && (
+                            <TableRow>
+                              <TableCell><strong>Organization</strong></TableCell>
+                              <TableCell>
+                                {serviceInfo.organization.url ? (
+                                  <Button 
+                                    variant="text" 
+                                    size="small" 
+                                    href={serviceInfo.organization.url}
+                                    target="_blank"
+                                    endIcon={<LinkIcon />}
+                                  >
+                                    {serviceInfo.organization.name}
+                                  </Button>
+                                ) : (
+                                  serviceInfo.organization.name
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          )}
+                          {(serviceInfo.contactUrl || serviceInfo.contact_info_url) && (
+                            <TableRow>
+                              <TableCell><strong>Contact</strong></TableCell>
+                              <TableCell>
+                                <Button 
+                                  variant="outlined" 
+                                  size="small" 
+                                  href={serviceInfo.contactUrl || serviceInfo.contact_info_url}
+                                  target="_blank"
+                                  startIcon={<Description />}
+                                >
+                                  Contact Info
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                          {serviceInfo.documentationUrl && (
+                            <TableRow>
+                              <TableCell><strong>Documentation</strong></TableCell>
+                              <TableCell>
+                                <Button 
+                                  variant="outlined" 
+                                  size="small" 
+                                  href={serviceInfo.documentationUrl}
+                                  target="_blank"
+                                  startIcon={<Description />}
+                                >
+                                  API Docs
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                          {serviceInfo.auth_instructions_url && (
+                            <TableRow>
+                              <TableCell><strong>Auth Guide</strong></TableCell>
+                              <TableCell>
+                                <Button 
+                                  variant="outlined" 
+                                  size="small" 
+                                  href={serviceInfo.auth_instructions_url}
+                                  target="_blank"
+                                  startIcon={<Security />}
+                                >
+                                  Auth Instructions
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </Grid>
+
+                  {/* Service Tags */}
+                  {serviceInfo.tags && Object.keys(serviceInfo.tags).length > 0 && (
+                    <Grid item xs={12}>
+                      <Typography variant="subtitle1" gutterBottom>
+                        Service Tags
+                      </Typography>
+                      <Box display="flex" gap={1} flexWrap="wrap">
+                        {Object.entries(serviceInfo.tags).map(([key, value]) => (
+                          <Chip
+                            key={key}
+                            label={`${key}: ${value}`}
+                            variant="outlined"
+                            size="small"
+                            icon={<Info />}
+                          />
+                        ))}
+                      </Box>
+                    </Grid>
+                  )}
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+        )}
+
+        {/* API Configuration Details */}
+        {service.api_config && Object.keys(service.api_config).length > 0 && (
+          <Grid item xs={12}>
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMore />}>
+                <Box display="flex" alignItems="center">
+                  <Computer sx={{ mr: 1 }} />
+                  <Typography variant="h6">API Configuration Details</Typography>
+                  <Chip 
+                    label={`${Object.keys(service.api_config).length} items`}
+                    size="small"
+                    sx={{ ml: 2 }}
+                  />
+                </Box>
+              </AccordionSummary>
+              <AccordionDetails>
+                <TableContainer component={Paper} variant="outlined">
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell><strong>Configuration Key</strong></TableCell>
+                        <TableCell><strong>Value</strong></TableCell>
+                        <TableCell><strong>Type</strong></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {Object.entries(service.api_config).map(([key, value]) => (
+                        <TableRow key={key}>
+                          <TableCell>
+                            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                              {key}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" sx={{ 
+                              maxWidth: 300, 
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              fontFamily: typeof value === 'object' ? 'monospace' : 'inherit'
+                            }}>
+                              {typeof value === 'object' 
+                                ? JSON.stringify(value, null, 2) 
+                                : String(value)
+                              }
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Chip 
+                              label={typeof value} 
+                              size="small" 
+                              variant="outlined"
+                              color={typeof value === 'object' ? 'primary' : 'default'}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </AccordionDetails>
+            </Accordion>
+          </Grid>
+        )}
+
         {/* Service Statistics Card */}
         <Grid item xs={12} md={6}>
           <Card>
             <CardContent>
               <Box display="flex" alignItems="center" mb={2}>
-                <Settings sx={{ mr: 1 }} />
-                <Typography variant="h6">Service Statistics</Typography>
+                <CloudDone sx={{ mr: 1 }} />
+                <Typography variant="h6">Service Statistics & Metrics</Typography>
               </Box>
 
-              <Grid container spacing={2}>
-                <Grid item xs={6}>
-                  <Paper elevation={0} sx={{ p: 2, bgcolor: 'primary.light', color: 'primary.contrastText' }}>
+              <Grid container spacing={2} mb={2}>
+                <Grid item xs={6} sm={3}>
+                  <Paper elevation={0} sx={{ p: 2, bgcolor: 'primary.light', color: 'primary.contrastText', textAlign: 'center' }}>
+                    <Badge badgeContent={panels.filter(p => p.is_active).length} color="success">
+                      <Storage sx={{ fontSize: 32, mb: 1 }} />
+                    </Badge>
                     <Typography variant="h4" align="center">
                       {panels.length}
                     </Typography>
@@ -334,9 +713,34 @@ const ServiceDetail: React.FC = () => {
                   </Paper>
                 </Grid>
                 
+                <Grid item xs={6} sm={3}>
+                  <Paper elevation={0} sx={{ p: 2, bgcolor: 'info.light', color: 'info.contrastText', textAlign: 'center' }}>
+                    <Memory sx={{ fontSize: 32, mb: 1 }} />
+                    <Typography variant="h4" align="center">
+                      {service.max_file_size_mb}
+                    </Typography>
+                    <Typography variant="body2" align="center">
+                      Max Size (MB)
+                    </Typography>
+                  </Paper>
+                </Grid>
+
+                <Grid item xs={6} sm={3}>
+                  <Paper elevation={0} sx={{ p: 2, bgcolor: 'success.light', color: 'success.contrastText', textAlign: 'center' }}>
+                    <VerifiedUser sx={{ fontSize: 32, mb: 1 }} />
+                    <Typography variant="h4" align="center">
+                      {service.supported_formats?.length || 2}
+                    </Typography>
+                    <Typography variant="body2" align="center">
+                      File Formats
+                    </Typography>
+                  </Paper>
+                </Grid>
+
                 {serviceInfo?.system_state_counts && (
-                  <Grid item xs={6}>
-                    <Paper elevation={0} sx={{ p: 2, bgcolor: 'secondary.light', color: 'secondary.contrastText' }}>
+                  <Grid item xs={6} sm={3}>
+                    <Paper elevation={0} sx={{ p: 2, bgcolor: 'secondary.light', color: 'secondary.contrastText', textAlign: 'center' }}>
+                      <Timeline sx={{ fontSize: 32, mb: 1 }} />
                       <Typography variant="h4" align="center">
                         {calculateTotalJobs(serviceInfo.system_state_counts)}
                       </Typography>
@@ -347,6 +751,51 @@ const ServiceDetail: React.FC = () => {
                   </Grid>
                 )}
               </Grid>
+
+              {/* Additional Metrics */}
+              <Box mb={2}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Service Health Indicators
+                </Typography>
+                <Grid container spacing={1}>
+                  <Grid item>
+                    <Chip
+                      icon={service.is_active ? <CheckCircle /> : <Error />}
+                      label={service.is_active ? 'Service Active' : 'Service Inactive'}
+                      color={service.is_active ? 'success' : 'error'}
+                      size="small"
+                    />
+                  </Grid>
+                  <Grid item>
+                    <Chip
+                      icon={<Security />}
+                      label={service.api_key_required ? 'Secured' : 'Public Access'}
+                      color={service.api_key_required ? 'warning' : 'info'}
+                      size="small"
+                    />
+                  </Grid>
+                  {serviceInfo?.supported_wes_versions && (
+                    <Grid item>
+                      <Chip
+                        icon={<Api />}
+                        label={`WES v${serviceInfo.supported_wes_versions[0] || '1.0'}`}
+                        color="primary"
+                        size="small"
+                      />
+                    </Grid>
+                  )}
+                  {service.location && (
+                    <Grid item>
+                      <Chip
+                        icon={<LocationOn />}
+                        label={service.location}
+                        variant="outlined"
+                        size="small"
+                      />
+                    </Grid>
+                  )}
+                </Grid>
+              </Box>
 
               {/* Job States for GA4GH */}
               {serviceInfo?.system_state_counts && (
