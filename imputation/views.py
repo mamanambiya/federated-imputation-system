@@ -90,6 +90,71 @@ class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
         
         serializer = ReferencePanelSerializer(panels, many=True)
         return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def health(self, request, pk=None):
+        """Check the health status of a specific service."""
+        service = self.get_object()
+        
+        try:
+            from .services import get_service_instance
+            service_instance = get_service_instance(service.id)
+            
+            # Try to get service info as a health check
+            service_info = service_instance.get_service_info()
+            
+            return Response({
+                'service_id': service.id,
+                'service_name': service.name,
+                'status': 'healthy',
+                'message': 'Service is responsive',
+                'service_info': service_info
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as exc:
+            logger.error(f"Health check failed for {service.name}: {exc}")
+            return Response({
+                'service_id': service.id,
+                'service_name': service.name,
+                'status': 'unhealthy',
+                'message': str(exc),
+                'error': type(exc).__name__
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    
+    @action(detail=False, methods=['get'])
+    def health_all(self, request):
+        """Check the health status of all services."""
+        from django.utils import timezone
+        
+        results = {}
+        
+        for service in self.get_queryset():
+            try:
+                from .services import get_service_instance
+                service_instance = get_service_instance(service.id)
+                
+                # Try to get service info as a health check
+                service_info = service_instance.get_service_info()
+                
+                results[service.id] = {
+                    'service_name': service.name,
+                    'status': 'healthy',
+                    'message': 'Service is responsive'
+                }
+                
+            except Exception as exc:
+                logger.error(f"Health check failed for {service.name}: {exc}")
+                results[service.id] = {
+                    'service_name': service.name,
+                    'status': 'unhealthy',
+                    'message': str(exc),
+                    'error': type(exc).__name__
+                }
+        
+        return Response({
+            'timestamp': timezone.now().isoformat(),
+            'services': results
+        })
 
 
 class ReferencePanelViewSet(viewsets.ReadOnlyModelViewSet):

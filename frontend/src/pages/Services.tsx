@@ -30,6 +30,7 @@ import {
   CheckCircle,
   Error,
   LocationOn,
+  Circle,
 } from '@mui/icons-material';
 import { useApi, ImputationService, ReferencePanel } from '../contexts/ApiContext';
 
@@ -43,10 +44,48 @@ const Services: React.FC = () => {
   const [referencePanels, setReferencePanels] = useState<ReferencePanel[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [syncing, setSyncing] = useState<number | null>(null);
+  const [serviceHealth, setServiceHealth] = useState<Record<number, 'healthy' | 'unhealthy' | 'checking'>>({});
 
   useEffect(() => {
     loadServices();
   }, []);
+
+  useEffect(() => {
+    if (services.length > 0) {
+      checkServicesHealth();
+    }
+  }, [services]);
+
+  const checkServicesHealth = async () => {
+    const healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking'> = {};
+    
+    // Set all services to checking status initially
+    services.forEach(service => {
+      healthStatus[service.id] = 'checking';
+    });
+    setServiceHealth(healthStatus);
+
+    // Check each service health
+    for (const service of services) {
+      try {
+        // Simple check - try to fetch service details
+        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/services/${service.id}/`, {
+          credentials: 'include',
+        });
+        
+        if (response.ok) {
+          healthStatus[service.id] = 'healthy';
+        } else {
+          healthStatus[service.id] = 'unhealthy';
+        }
+      } catch (error) {
+        console.error(`Health check failed for ${service.name}:`, error);
+        healthStatus[service.id] = 'unhealthy';
+      }
+    }
+    
+    setServiceHealth({ ...healthStatus });
+  };
 
   const loadServices = async () => {
     try {
@@ -86,6 +125,68 @@ const Services: React.FC = () => {
       console.error('Error syncing panels:', err);
     } finally {
       setSyncing(null);
+    }
+  };
+
+  const getServiceStatusIndicator = (serviceId: number) => {
+    const status = serviceHealth[serviceId];
+    
+    switch (status) {
+      case 'healthy':
+        return (
+          <Circle 
+            sx={{ 
+              color: '#4caf50', 
+              fontSize: 12,
+              mr: 1
+            }} 
+          />
+        );
+      case 'unhealthy':
+        return (
+          <Circle 
+            sx={{ 
+              color: '#f44336', 
+              fontSize: 12,
+              mr: 1
+            }} 
+          />
+        );
+      case 'checking':
+        return (
+          <CircularProgress 
+            size={12}
+            sx={{ 
+              mr: 1,
+              color: '#ff9800'
+            }} 
+          />
+        );
+      default:
+        return (
+          <Circle 
+            sx={{ 
+              color: '#9e9e9e', 
+              fontSize: 12,
+              mr: 1
+            }} 
+          />
+        );
+    }
+  };
+
+  const getServiceStatusText = (serviceId: number) => {
+    const status = serviceHealth[serviceId];
+    
+    switch (status) {
+      case 'healthy':
+        return 'Online';
+      case 'unhealthy':
+        return 'Offline';
+      case 'checking':
+        return 'Checking...';
+      default:
+        return 'Unknown';
     }
   };
 
@@ -158,12 +259,24 @@ const Services: React.FC = () => {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Imputation Services
-      </Typography>
-      <Typography variant="body1" color="text.secondary" paragraph>
-        Select an imputation service to view available reference panels and submit jobs.
-      </Typography>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+        <Box>
+          <Typography variant="h4" gutterBottom>
+            Imputation Services
+          </Typography>
+          <Typography variant="body1" color="text.secondary">
+            Select an imputation service to view available reference panels and submit jobs.
+          </Typography>
+        </Box>
+        <Button
+          variant="outlined"
+          startIcon={<Sync />}
+          onClick={checkServicesHealth}
+          disabled={Object.values(serviceHealth).some(status => status === 'checking')}
+        >
+          Check Status
+        </Button>
+      </Box>
 
       {/* API Type Legend */}
       <Box display="flex" gap={2} mb={3} flexWrap="wrap">
@@ -237,24 +350,41 @@ const Services: React.FC = () => {
               <CardContent sx={{ flexGrow: 1 }}>
                 <Box display="flex" alignItems="center" mb={2}>
                   {getServiceIcon(service.service_type)}
-                  <Box ml={2}>
-                    <Typography variant="h6" component="h2">
-                      {service.name}
-                    </Typography>
-                    <Chip 
-                      label={service.service_type.toUpperCase()} 
-                      size="small" 
-                      color={service.service_type === 'h3africa' ? 'primary' : 'secondary'}
-                    />
-                    {service.api_type && (
+                  <Box ml={2} sx={{ flexGrow: 1 }}>
+                    <Box display="flex" alignItems="center" justifyContent="space-between">
+                      <Typography variant="h6" component="h2">
+                        {service.name}
+                      </Typography>
+                      <Box display="flex" alignItems="center">
+                        {getServiceStatusIndicator(service.id)}
+                        <Typography 
+                          variant="caption" 
+                          sx={{ 
+                            color: serviceHealth[service.id] === 'healthy' ? '#4caf50' : 
+                                   serviceHealth[service.id] === 'unhealthy' ? '#f44336' : '#ff9800',
+                            fontWeight: 'medium'
+                          }}
+                        >
+                          {getServiceStatusText(service.id)}
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Box mt={1}>
                       <Chip 
-                        label={service.api_type.toUpperCase()} 
+                        label={service.service_type.toUpperCase()} 
                         size="small" 
-                        color={getApiTypeColor(service.api_type).chipColor}
-                        variant="outlined"
-                        sx={{ ml: 1 }}
+                        color={service.service_type === 'h3africa' ? 'primary' : 'secondary'}
                       />
-                    )}
+                      {service.api_type && (
+                        <Chip 
+                          label={service.api_type.toUpperCase()} 
+                          size="small" 
+                          color={getApiTypeColor(service.api_type).chipColor}
+                          variant="outlined"
+                          sx={{ ml: 1 }}
+                        />
+                      )}
+                    </Box>
                   </Box>
                 </Box>
 
