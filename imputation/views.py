@@ -35,9 +35,19 @@ from .tasks import (
 logger = logging.getLogger(__name__)
 
 
+class CsrfExemptSessionAuthentication(SessionAuthentication):
+    """
+    SessionAuthentication that bypasses CSRF checks.
+    Use this for API endpoints that need session auth but not CSRF protection.
+    """
+    def enforce_csrf(self, request):
+        return  # Skip CSRF check
+
+
 class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for ImputationService operations."""
     
+    authentication_classes = [CsrfExemptSessionAuthentication]
     serializer_class = ImputationServiceSerializer
     permission_classes = [permissions.IsAuthenticated]
     
@@ -85,6 +95,7 @@ class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
 class ReferencePanelViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for ReferencePanel operations."""
     
+    authentication_classes = [CsrfExemptSessionAuthentication]
     serializer_class = ReferencePanelSerializer
     permission_classes = [permissions.IsAuthenticated]
     
@@ -113,8 +124,9 @@ class ReferencePanelViewSet(viewsets.ReadOnlyModelViewSet):
 class ImputationJobViewSet(viewsets.ModelViewSet):
     """ViewSet for ImputationJob operations."""
     
+    authentication_classes = [CsrfExemptSessionAuthentication]
+    serializer_class = ImputationJobListSerializer
     permission_classes = [permissions.IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
     
     def get_queryset(self):
         """Get jobs for the current user."""
@@ -265,6 +277,7 @@ class ImputationJobViewSet(viewsets.ModelViewSet):
 class JobStatusUpdateViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for JobStatusUpdate operations."""
     
+    authentication_classes = [CsrfExemptSessionAuthentication]
     serializer_class = JobStatusUpdateSerializer
     permission_classes = [permissions.IsAuthenticated]
     
@@ -278,6 +291,7 @@ class JobStatusUpdateViewSet(viewsets.ReadOnlyModelViewSet):
 class ResultFileViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for ResultFile operations."""
     
+    authentication_classes = [CsrfExemptSessionAuthentication]
     serializer_class = ResultFileSerializer
     permission_classes = [permissions.IsAuthenticated]
     
@@ -323,6 +337,7 @@ class ResultFileViewSet(viewsets.ReadOnlyModelViewSet):
 class UserServiceAccessViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for UserServiceAccess operations."""
     
+    authentication_classes = [CsrfExemptSessionAuthentication]
     serializer_class = UserServiceAccessSerializer
     permission_classes = [permissions.IsAuthenticated]
     
@@ -336,6 +351,7 @@ class UserServiceAccessViewSet(viewsets.ReadOnlyModelViewSet):
 class DashboardViewSet(viewsets.ViewSet):
     """ViewSet for dashboard statistics and overview."""
     
+    authentication_classes = [CsrfExemptSessionAuthentication]
     permission_classes = [permissions.AllowAny]  # Temporarily allow any for development
     
     @action(detail=False, methods=['get'])
@@ -428,15 +444,6 @@ class TestView(APIView):
     
     def post(self, request):
         return Response({'message': 'API is working!', 'method': 'POST', 'data': request.data})
-
-
-class CsrfExemptSessionAuthentication(SessionAuthentication):
-    """
-    SessionAuthentication that bypasses CSRF checks.
-    Use this for API endpoints that need session auth but not CSRF protection.
-    """
-    def enforce_csrf(self, request):
-        return  # Skip CSRF check
 
 
 class LoginView(APIView):
