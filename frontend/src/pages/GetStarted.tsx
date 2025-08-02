@@ -31,6 +31,7 @@ import {
   GetApp,
   Settings,
 } from '@mui/icons-material';
+import Footer from '../components/Layout/Footer';
 
 const GetStarted: React.FC = () => {
   const navigate = useNavigate();
@@ -330,6 +331,9 @@ const GetStarted: React.FC = () => {
           </Grid>
         </Grid>
       </Container>
+      
+      {/* Footer */}
+      <Footer />
     </Box>
   );
 };

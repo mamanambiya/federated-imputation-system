@@ -27,6 +27,7 @@ import {
   Science,
 } from '@mui/icons-material';
 import { useApi } from '../contexts/ApiContext';
+import Footer from '../components/Layout/Footer';
 
 const ServicesInfo: React.FC = () => {
   const navigate = useNavigate();
@@ -360,6 +361,9 @@ const ServicesInfo: React.FC = () => {
           </Card>
         </Box>
       </Container>
+      
+      {/* Footer */}
+      <Footer />
     </Box>
   );
 };

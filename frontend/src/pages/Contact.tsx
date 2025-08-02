@@ -27,6 +27,7 @@ import {
   Support,
   Business,
 } from '@mui/icons-material';
+import Footer from '../components/Layout/Footer';
 
 const Contact: React.FC = () => {
   const navigate = useNavigate();
@@ -390,6 +391,9 @@ const Contact: React.FC = () => {
           </Grid>
         </Grid>
       </Container>
+      
+      {/* Footer */}
+      <Footer />
     </Box>
   );
 };

@@ -32,6 +32,7 @@ import {
   BugReport,
   IntegrationInstructions,
 } from '@mui/icons-material';
+import Footer from '../components/Layout/Footer';
 
 const Documentation: React.FC = () => {
   const navigate = useNavigate();
@@ -391,6 +392,9 @@ const Documentation: React.FC = () => {
           </Grid>
         </Grid>
       </Container>
+      
+      {/* Footer */}
+      <Footer />
     </Box>
   );
 };

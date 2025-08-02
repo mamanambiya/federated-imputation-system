@@ -48,11 +48,27 @@ const Dashboard: React.FC = () => {
   const loadStats = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await getDashboardStats();
       setStats(data);
     } catch (err) {
-      setError('Failed to load dashboard data');
       console.error('Error loading dashboard:', err);
+      setError('Failed to load dashboard data. Using default values.');
+      // Set default stats if API fails
+      setStats({
+        job_stats: {
+          total: 0,
+          completed: 0,
+          running: 0,
+          failed: 0,
+          success_rate: 0
+        },
+        service_stats: {
+          available_services: 0,
+          accessible_services: 0
+        },
+        recent_jobs: []
+      });
     } finally {
       setLoading(false);
     }

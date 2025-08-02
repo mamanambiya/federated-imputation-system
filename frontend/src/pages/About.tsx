@@ -21,6 +21,7 @@ import {
   Rocket,
   ArrowBack,
 } from '@mui/icons-material';
+import Footer from '../components/Layout/Footer';
 
 const About: React.FC = () => {
   const navigate = useNavigate();
@@ -264,6 +265,9 @@ const About: React.FC = () => {
           </Card>
         </Box>
       </Container>
+      
+      {/* Footer */}
+      <Footer />
     </Box>
   );
 };
