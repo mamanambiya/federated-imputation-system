@@ -61,6 +61,9 @@ import {
   CloudDone,
   VerifiedUser,
   Psychology,
+  Biotech,
+  DeviceHub,
+  LocalOffer,
 } from '@mui/icons-material';
 import { useApi, ImputationService, ReferencePanel } from '../contexts/ApiContext';
 
@@ -96,6 +99,7 @@ interface ServiceInfo {
   updatedAt?: string;
   environment?: string;
   version?: string;
+  workflow_type_versions?: Record<string, any>;
 }
 
 const ServiceDetail: React.FC = () => {
@@ -824,140 +828,250 @@ const ServiceDetail: React.FC = () => {
           </Card>
         </Grid>
 
-        {/* GA4GH Specific Information */}
+        {/* GA4GH WES Specific Information */}
         {service.api_type === 'ga4gh' && serviceInfo && (
           <Grid item xs={12}>
-            <Accordion defaultExpanded>
-              <AccordionSummary expandIcon={<ExpandMore />}>
-                <Box display="flex" alignItems="center">
-                  <Code sx={{ mr: 1 }} />
-                  <Typography variant="h6">GA4GH WES Information</Typography>
+            <Card>
+              <CardContent>
+                <Box display="flex" alignItems="center" mb={2}>
+                  <Biotech sx={{ mr: 1 }} />
+                  <Typography variant="h6">GA4GH WES Service Details</Typography>
                 </Box>
-              </AccordionSummary>
-              <AccordionDetails>
-                <Grid container spacing={2}>
+                
+                <Grid container spacing={3}>
+                  {/* WES Capabilities */}
+                  <Grid item xs={12} md={6}>
+                    <Paper elevation={1} sx={{ p: 2, height: '100%' }}>
+                      <Typography variant="subtitle1" gutterBottom color="primary">
+                        <Speed sx={{ mr: 1, verticalAlign: 'middle' }} />
+                        WES Capabilities
+                      </Typography>
+                      
+                      {serviceInfo.supported_wes_versions && (
+                        <Box mb={2}>
+                          <Typography variant="body2" color="text.secondary">
+                            Supported WES Versions
+                          </Typography>
+                          <Box display="flex" gap={1} flexWrap="wrap" mt={1}>
+                            {serviceInfo.supported_wes_versions.map((version, idx) => (
+                              <Chip key={idx} label={`WES ${version}`} size="small" color="primary" />
+                            ))}
+                          </Box>
+                        </Box>
+                      )}
+                      
+                      {serviceInfo.supported_filesystem_protocols && (
+                        <Box mb={2}>
+                          <Typography variant="body2" color="text.secondary">
+                            Filesystem Protocols
+                          </Typography>
+                          <Box display="flex" gap={1} flexWrap="wrap" mt={1}>
+                            {serviceInfo.supported_filesystem_protocols.map((protocol, idx) => (
+                              <Chip 
+                                key={idx} 
+                                label={protocol.toUpperCase()} 
+                                size="small" 
+                                variant="outlined"
+                                color={protocol === 'S3' ? 'warning' : 'default'}
+                              />
+                            ))}
+                          </Box>
+                        </Box>
+                      )}
+                    </Paper>
+                  </Grid>
+
                   {/* Workflow Engines */}
-                  {serviceInfo.workflow_engine_versions && (
-                    <Grid item xs={12} md={6}>
-                      <Typography variant="subtitle1" gutterBottom>
+                  <Grid item xs={12} md={6}>
+                    <Paper elevation={1} sx={{ p: 2, height: '100%' }}>
+                      <Typography variant="subtitle1" gutterBottom color="primary">
+                        <DeviceHub sx={{ mr: 1, verticalAlign: 'middle' }} />
                         Workflow Engines
                       </Typography>
-                      <List dense>
-                        {Object.entries(serviceInfo.workflow_engine_versions).map(([engine, version]) => (
-                          <ListItem key={engine}>
-                            <ListItemIcon>
-                              <Settings />
-                            </ListItemIcon>
-                            <ListItemText 
-                              primary={engine}
-                              secondary={`Version ${version}`}
-                            />
-                          </ListItem>
-                        ))}
-                      </List>
-                    </Grid>
-                  )}
-
-                  {/* Storage Protocols */}
-                  {serviceInfo.supported_filesystem_protocols && (
-                    <Grid item xs={12} md={6}>
-                      <Typography variant="subtitle1" gutterBottom>
-                        Supported Storage
-                      </Typography>
-                      <Box display="flex" gap={1} flexWrap="wrap">
-                        {serviceInfo.supported_filesystem_protocols.map(protocol => (
-                          <Chip
-                            key={protocol}
-                            icon={<Storage />}
-                            label={protocol.toUpperCase()}
-                            variant="outlined"
-                          />
-                        ))}
-                      </Box>
-                    </Grid>
-                  )}
-
-                  {/* Contact & Auth */}
-                  <Grid item xs={12}>
-                    <Box display="flex" gap={2} flexWrap="wrap">
-                      {serviceInfo.contact_info_url && (
-                        <Button
-                          size="small"
-                          component="a"
-                          startIcon={<Description />}
-                          href={serviceInfo.contact_info_url}
-                          target="_blank"
-                        >
-                          Contact Support
-                        </Button>
-                      )}
-                      {serviceInfo.auth_instructions_url && (
-                        <Button
-                          size="small"
-                          component="a"
-                          startIcon={<Security />}
-                          href={serviceInfo.auth_instructions_url}
-                          target="_blank"
-                        >
-                          Auth Documentation
-                        </Button>
-                      )}
-                    </Box>
-                  </Grid>
-                </Grid>
-              </AccordionDetails>
-            </Accordion>
-          </Grid>
-        )}
-
-        {/* Workflow Parameters for GA4GH */}
-        {Object.keys(workflowParams).length > 0 && (
-          <Grid item xs={12}>
-            <Accordion>
-              <AccordionSummary expandIcon={<ExpandMore />}>
-                <Box display="flex" alignItems="center">
-                  <Settings sx={{ mr: 1 }} />
-                  <Typography variant="h6">Workflow Parameters</Typography>
-                </Box>
-              </AccordionSummary>
-              <AccordionDetails>
-                <Grid container spacing={2}>
-                  {Object.entries(workflowParams).map(([engine, params]) => (
-                    <Grid item xs={12} md={6} key={engine}>
-                      <Typography variant="subtitle1" gutterBottom>
-                        {engine} Parameters ({params.length})
-                      </Typography>
-                      <Paper variant="outlined" sx={{ p: 2, maxHeight: 300, overflow: 'auto' }}>
-                        <List dense>
-                          {params.map((param: any, index: number) => (
-                            <React.Fragment key={index}>
-                              <ListItem>
-                                <ListItemText
-                                  primary={param.name}
-                                  secondary={
-                                    <Box>
-                                      <Typography variant="caption" component="span" color="text.secondary">
-                                        Type: {param.type}
-                                      </Typography>
-                                      {param.default !== undefined && param.default !== null && (
-                                        <Typography variant="caption" component="span" color="success.main" sx={{ ml: 1 }}>
-                                          Default: {String(param.default)}
-                                        </Typography>
-                                      )}
-                                    </Box>
-                                  }
-                                />
-                              </ListItem>
-                              {index < params.length - 1 && <Divider />}
-                            </React.Fragment>
+                      
+                      {serviceInfo.workflow_engine_versions && (
+                        <Box mb={2}>
+                          <Typography variant="body2" color="text.secondary" gutterBottom>
+                            Available Engines
+                          </Typography>
+                          {Object.entries(serviceInfo.workflow_engine_versions).map(([engine, version]) => (
+                            <Box key={engine} display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                              <Chip 
+                                label={engine === 'NFL' ? 'Nextflow' : engine === 'SMK' ? 'Snakemake' : engine} 
+                                color="secondary" 
+                                size="small"
+                              />
+                              <Typography variant="body2" color="text.secondary">
+                                v{version}
+                              </Typography>
+                            </Box>
                           ))}
-                        </List>
+                        </Box>
+                      )}
+                      
+                      {serviceInfo.workflow_type_versions && (
+                        <Box>
+                          <Typography variant="body2" color="text.secondary" gutterBottom>
+                            Workflow Type Support
+                          </Typography>
+                          {Object.entries(serviceInfo.workflow_type_versions).map(([type, info]) => (
+                            <Box key={type} mb={1}>
+                              <Typography variant="caption" display="block">
+                                {type}: {(info as any).workflow_type_version?.join(', ') || 'Available'}
+                              </Typography>
+                            </Box>
+                          ))}
+                        </Box>
+                      )}
+                    </Paper>
+                  </Grid>
+
+                  {/* System Status */}
+                  {serviceInfo.system_state_counts && (
+                    <Grid item xs={12}>
+                      <Paper elevation={1} sx={{ p: 2 }}>
+                        <Typography variant="subtitle1" gutterBottom color="primary">
+                          <Timeline sx={{ mr: 1, verticalAlign: 'middle' }} />
+                          System Status & Job Statistics
+                        </Typography>
+                        
+                        <Grid container spacing={2}>
+                          {Object.entries(serviceInfo.system_state_counts).map(([state, count]) => (
+                            <Grid item xs={6} sm={4} md={3} key={state}>
+                              <Box 
+                                sx={{ 
+                                  p: 1.5, 
+                                  border: 1, 
+                                  borderColor: 'divider', 
+                                  borderRadius: 1,
+                                  textAlign: 'center',
+                                  bgcolor: count > 0 ? 'action.hover' : 'background.paper'
+                                }}
+                              >
+                                <Typography variant="h6" color={count > 0 ? 'primary' : 'text.secondary'}>
+                                  {count}
+                                </Typography>
+                                <Typography variant="caption" display="block" color="text.secondary">
+                                  {state.replace(/_/g, ' ')}
+                                </Typography>
+                              </Box>
+                            </Grid>
+                          ))}
+                        </Grid>
+                        
+                        <Box mt={2}>
+                          <Typography variant="body2" color="text.secondary">
+                            Total Jobs: {Object.values(serviceInfo.system_state_counts).reduce((a: number, b: number) => a + b, 0)}
+                          </Typography>
+                        </Box>
                       </Paper>
                     </Grid>
-                  ))}
+                  )}
+
+                  {/* Workflow Parameters */}
+                  {serviceInfo.default_workflow_engine_parameters && serviceInfo.default_workflow_engine_parameters.length > 0 && (
+                    <Grid item xs={12}>
+                      <Accordion>
+                        <AccordionSummary expandIcon={<ExpandMore />}>
+                          <Box display="flex" alignItems="center">
+                            <Settings sx={{ mr: 1 }} />
+                            <Typography variant="subtitle1">
+                              Workflow Engine Parameters ({serviceInfo.default_workflow_engine_parameters.length})
+                            </Typography>
+                          </Box>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                          <TableContainer component={Paper} variant="outlined">
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow>
+                                  <TableCell><strong>Engine</strong></TableCell>
+                                  <TableCell><strong>Parameter</strong></TableCell>
+                                  <TableCell><strong>Type</strong></TableCell>
+                                  <TableCell><strong>Default</strong></TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {serviceInfo.default_workflow_engine_parameters.map((param, idx) => {
+                                  const [engine, version, paramName] = param.name.split('|');
+                                  return (
+                                    <TableRow key={idx} hover>
+                                      <TableCell>
+                                        <Chip 
+                                          label={engine === 'NFL' ? 'Nextflow' : engine === 'SMK' ? 'Snakemake' : engine}
+                                          size="small"
+                                          color={engine === 'NFL' ? 'primary' : 'secondary'}
+                                        />
+                                      </TableCell>
+                                      <TableCell>
+                                        <Typography variant="body2" component="code">
+                                          {paramName}
+                                        </Typography>
+                                      </TableCell>
+                                      <TableCell>
+                                        <Typography variant="caption" color="text.secondary">
+                                          {param.type}
+                                        </Typography>
+                                      </TableCell>
+                                      <TableCell>
+                                        <Typography variant="body2">
+                                          {param.default_value || 
+                                            <em style={{ color: '#666' }}>null</em>
+                                          }
+                                        </Typography>
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                          
+                          <Box mt={2}>
+                                                         <Typography variant="body2" color="text.secondary">
+                               Engine Breakdown: {
+                                 Object.entries(
+                                   serviceInfo.default_workflow_engine_parameters.reduce((acc: Record<string, number>, param) => {
+                                     const engine = param.name.split('|')[0];
+                                     acc[engine] = (acc[engine] || 0) + 1;
+                                     return acc;
+                                   }, {})
+                                 ).map(([engine, count]) => `${engine}: ${count} params`).join(', ')
+                               }
+                             </Typography>
+                          </Box>
+                        </AccordionDetails>
+                      </Accordion>
+                    </Grid>
+                  )}
+
+                  {/* Service Tags */}
+                  {serviceInfo.tags && Object.keys(serviceInfo.tags).length > 0 && (
+                    <Grid item xs={12}>
+                      <Paper elevation={1} sx={{ p: 2 }}>
+                        <Typography variant="subtitle1" gutterBottom color="primary">
+                          <LocalOffer sx={{ mr: 1, verticalAlign: 'middle' }} />
+                          Service Tags & Metadata
+                        </Typography>
+                        
+                        <Box display="flex" gap={1} flexWrap="wrap">
+                          {Object.entries(serviceInfo.tags).map(([key, value]) => (
+                            <Tooltip key={key} title={`${key}: ${value}`}>
+                              <Chip 
+                                label={`${key}=${value}`}
+                                variant="outlined"
+                                size="small"
+                                color="info"
+                              />
+                            </Tooltip>
+                          ))}
+                        </Box>
+                      </Paper>
+                    </Grid>
+                  )}
                 </Grid>
-              </AccordionDetails>
-            </Accordion>
+              </CardContent>
+            </Card>
           </Grid>
         )}
 
