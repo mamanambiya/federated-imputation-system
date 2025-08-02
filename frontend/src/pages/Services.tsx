@@ -65,19 +65,32 @@ const Services: React.FC = () => {
     });
     setServiceHealth(healthStatus);
 
-    // Check each service health
+    // Check each service health using backend health check API
     for (const service of services) {
       try {
-        // Simple check - try to fetch service details
-        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/services/${service.id}/`, {
-          credentials: 'include',
-        });
+        const response = await fetch(
+          `${process.env.REACT_APP_API_URL}/api/services/${service.id}/health/`,
+          {
+            credentials: 'include',
+          }
+        );
         
         if (response.ok) {
-          healthStatus[service.id] = 'healthy';
+          const healthData = await response.json();
+          healthStatus[service.id] = healthData.status === 'healthy' ? 'healthy' : 'unhealthy';
+          
+          // Log detailed health info for debugging
+          console.log(`Health check for ${service.name}:`, {
+            status: healthData.status,
+            message: healthData.message,
+            test_url: healthData.test_url,
+            response_time: healthData.response_time_ms
+          });
         } else {
+          console.error(`Health check API failed for ${service.name}: HTTP ${response.status}`);
           healthStatus[service.id] = 'unhealthy';
         }
+        
       } catch (error) {
         console.error(`Health check failed for ${service.name}:`, error);
         healthStatus[service.id] = 'unhealthy';

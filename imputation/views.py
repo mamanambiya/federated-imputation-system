@@ -97,29 +97,93 @@ class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
         service = self.get_object()
         
         try:
-            from .services import get_service_instance
-            service_instance = get_service_instance(service.id)
+            import requests
+            from requests.exceptions import RequestException, Timeout, ConnectionError
             
-            # Try to get service info as a health check
-            service_info = service_instance.get_service_info()
+            # Determine the appropriate health check URL
+            test_url = service.api_url
             
-            return Response({
-                'service_id': service.id,
-                'service_name': service.name,
-                'status': 'healthy',
-                'message': 'Service is responsive',
-                'service_info': service_info
-            }, status=status.HTTP_200_OK)
+            if service.api_type == 'ga4gh':
+                # GA4GH WES services have a service-info endpoint
+                test_url = f"{service.api_url.rstrip('/')}/service-info"
+            elif service.api_type == 'michigan':
+                # Michigan Imputation Server - test root URL
+                test_url = service.api_url
+            elif service.api_type == 'dnastack':
+                # DNAstack services - test root URL  
+                test_url = service.api_url
             
-        except Exception as exc:
-            logger.error(f"Health check failed for {service.name}: {exc}")
+            # Perform the actual health check with timeout
+            response = requests.get(
+                test_url,
+                timeout=10,  # 10 second timeout
+                verify=False,  # Skip SSL verification for demo services
+                allow_redirects=True
+            )
+            
+            # Check if the response indicates the service is healthy
+            if response.status_code in [200, 201, 202]:
+                return Response({
+                    'service_id': service.id,
+                    'service_name': service.name,
+                    'status': 'healthy',
+                    'message': f'Service responded with HTTP {response.status_code}',
+                    'test_url': test_url,
+                    'response_time_ms': int(response.elapsed.total_seconds() * 1000)
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response({
+                    'service_id': service.id,
+                    'service_name': service.name,
+                    'status': 'unhealthy',
+                    'message': f'Service responded with HTTP {response.status_code}',
+                    'test_url': test_url,
+                    'error': f'HTTP_{response.status_code}'
+                }, status=status.HTTP_200_OK)  # Still return 200 but with unhealthy status
+            
+        except Timeout:
+            logger.error(f"Timeout checking {service.name} at {test_url}")
             return Response({
                 'service_id': service.id,
                 'service_name': service.name,
                 'status': 'unhealthy',
-                'message': str(exc),
+                'message': 'Service request timed out (10s)',
+                'test_url': test_url,
+                'error': 'Timeout'
+            }, status=status.HTTP_200_OK)
+            
+        except ConnectionError:
+            logger.error(f"Connection error checking {service.name} at {test_url}")
+            return Response({
+                'service_id': service.id,
+                'service_name': service.name,
+                'status': 'unhealthy',
+                'message': 'Unable to connect to service',
+                'test_url': test_url,
+                'error': 'ConnectionError'
+            }, status=status.HTTP_200_OK)
+            
+        except RequestException as exc:
+            logger.error(f"Request error checking {service.name} at {test_url}: {exc}")
+            return Response({
+                'service_id': service.id,
+                'service_name': service.name,
+                'status': 'unhealthy',
+                'message': f'Request failed: {str(exc)}',
+                'test_url': test_url,
+                'error': 'RequestException'
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as exc:
+            logger.error(f"Unexpected error checking {service.name} at {test_url}: {exc}")
+            return Response({
+                'service_id': service.id,
+                'service_name': service.name,
+                'status': 'unhealthy',
+                'message': f'Unexpected error: {str(exc)}',
+                'test_url': test_url,
                 'error': type(exc).__name__
-            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            }, status=status.HTTP_200_OK)
     
     @action(detail=False, methods=['get'])
     def health_all(self, request):
