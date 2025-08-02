@@ -414,8 +414,8 @@ class DashboardViewSet(viewsets.ViewSet):
 
 
 class IndexView(TemplateView):
-    """Serve the React frontend."""
-    template_name = 'index.html'
+    """Serve the React frontend application."""
+    template_name = 'imputation/index.html'
 
 
 class TestView(APIView):

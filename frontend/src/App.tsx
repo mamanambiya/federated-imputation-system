@@ -1,21 +1,24 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { CssBaseline, Box, CircularProgress } from '@mui/material';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ApiProvider } from './contexts/ApiContext';
+
+// Import all components
 import Navbar from './components/Layout/Navbar';
 import Sidebar from './components/Layout/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Services from './pages/Services';
 import ServiceDetail from './pages/ServiceDetail';
 import Jobs from './pages/Jobs';
-import JobDetails from './pages/JobDetails';
 import NewJob from './pages/NewJob';
+import JobDetails from './pages/JobDetails';
 import Results from './pages/Results';
-import Login from './pages/Login';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
+import Login from './pages/Login';
+import LandingPage from './pages/LandingPage';
 
 const theme = createTheme({
   palette: {
@@ -24,9 +27,6 @@ const theme = createTheme({
     },
     secondary: {
       main: '#dc004e',
-    },
-    background: {
-      default: '#f5f5f5',
     },
   },
   typography: {
@@ -42,9 +42,61 @@ const theme = createTheme({
   },
 });
 
+// Authenticated App Content
+const AuthenticatedApp: React.FC = () => {
+  const [sidebarOpen, setSidebarOpen] = React.useState(true);
+
+  return (
+    <Box sx={{ display: 'flex' }}>
+      <Navbar onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
+      <Sidebar open={sidebarOpen} />
+      <Box
+        component="main"
+        sx={{
+          flexGrow: 1,
+          padding: 0,
+          marginTop: '64px',
+          marginLeft: sidebarOpen ? '10px' : '0px',
+          transition: 'margin-left 0.3s',
+          backgroundColor: 'background.default'
+        }}
+      >
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/services" element={<Services />} />
+          <Route path="/services/:id" element={<ServiceDetail />} />
+          <Route path="/jobs" element={<Jobs />} />
+          <Route path="/jobs/new" element={<NewJob />} />
+          <Route path="/jobs/:id" element={<JobDetails />} />
+          <Route path="/results" element={<Results />} />
+          <Route path="/profile" element={<Profile />} />
+          <Route path="/settings" element={<Settings />} />
+          {/* Redirect authenticated users from landing page to dashboard */}
+          <Route path="/landing" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Box>
+    </Box>
+  );
+};
+
+// Unauthenticated App Content
+const UnauthenticatedApp: React.FC = () => {
+  return (
+    <Routes>
+      {/* React-based landing page at root */}
+      <Route path="/" element={<LandingPage />} />
+      {/* Alternative landing page route */}
+      <Route path="/landing" element={<LandingPage />} />
+      {/* Login page */}
+      <Route path="/login" element={<Login />} />
+      {/* Redirect all other routes to landing page for unauthenticated users */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+};
+
 const AppContent: React.FC = () => {
   const { isAuthenticated, loading } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = React.useState(true);
 
   if (loading) {
     return (
@@ -59,40 +111,8 @@ const AppContent: React.FC = () => {
     );
   }
 
-  if (!isAuthenticated) {
-    return <Login />;
-  }
-
-  return (
-    <Box sx={{ display: 'flex' }}>
-      <Navbar onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
-      <Sidebar open={sidebarOpen} />
-      <Box
-        component="main"
-        sx={{
-          flexGrow: 1,
-          padding: 0,
-          marginTop: '64px',
-          marginLeft: sidebarOpen ? '10px' : '0px',
-          transition: 'margin-left 0.3s',
-          backgroundColor: 'background.default',
-          minHeight: 'calc(100vh - 64px)',
-        }}
-      >
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/services" element={<Services />} />
-          <Route path="/services/:id" element={<ServiceDetail />} />
-          <Route path="/jobs" element={<Jobs />} />
-          <Route path="/jobs/new" element={<NewJob />} />
-          <Route path="/jobs/:id" element={<JobDetails />} />
-          <Route path="/results" element={<Results />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/settings" element={<Settings />} />
-        </Routes>
-      </Box>
-    </Box>
-  );
+  // Show different app structure based on authentication status
+  return isAuthenticated ? <AuthenticatedApp /> : <UnauthenticatedApp />;
 };
 
 function App() {

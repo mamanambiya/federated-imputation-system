@@ -7,6 +7,11 @@ ENV PIP_TIMEOUT=300
 
 WORKDIR /app
 
+# Install system dependencies including curl for health checks
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy requirements and install with extended timeout and retries
 COPY requirements.txt .
 RUN pip install --timeout=300 --retries=5 --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org -r requirements.txt
@@ -15,8 +20,11 @@ RUN pip install --timeout=300 --retries=5 --trusted-host pypi.org --trusted-host
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p static media uploads
+RUN mkdir -p static media uploads logs
+
+# Make entrypoint script executable
+RUN chmod +x entrypoint.sh
 
 EXPOSE 8000
 
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"] 
+CMD ["./entrypoint.sh"] 

@@ -78,6 +78,11 @@ DATABASES = {
         'PASSWORD': config('DB_PASSWORD', default='postgres'),
         'HOST': config('DB_HOST', default='localhost'),
         'PORT': config('DB_PORT', default='5432'),
+        'OPTIONS': {
+            'connect_timeout': 10,
+        },
+        'CONN_MAX_AGE': 60,  # Persistent connections for 1 minute
+        'CONN_HEALTH_CHECKS': True,  # Check connection health before reusing
     }
 }
 
@@ -165,4 +170,68 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB
 
 # Security settings
 SECURE_BROWSER_XSS_FILTER = True
-SECURE_CONTENT_TYPE_NOSNIFF = True 
+SECURE_CONTENT_TYPE_NOSNIFF = True
+
+# Enhanced Session Configuration for Reliability
+SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'  # Fallback to DB if cache fails
+SESSION_CACHE_ALIAS = 'default'
+SESSION_COOKIE_AGE = 60 * 60 * 24 * 7  # 1 week
+SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_SAVE_EVERY_REQUEST = False  # Only save when session is modified
+SESSION_EXPIRE_AT_BROWSER_CLOSE = False
+
+# Database Connection Resilience
+DATABASE_CONNECTION_RETRY_DELAY = 1  # seconds
+DATABASE_CONNECTION_MAX_RETRIES = 5
+
+# Logging Configuration for Debugging
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': '/app/logs/django.log',
+            'formatter': 'verbose',
+        },
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+    },
+    'loggers': {
+        'django.db.backends': {
+            'level': 'INFO',
+            'handlers': ['console', 'file'],
+            'propagate': False,
+        },
+        'django.security': {
+            'level': 'INFO',
+            'handlers': ['console', 'file'],
+            'propagate': False,
+        },
+        'imputation': {
+            'level': 'INFO',
+            'handlers': ['console', 'file'],
+            'propagate': False,
+        },
+    },
+    'root': {
+        'level': 'INFO',
+        'handlers': ['console'],
+    },
+} 

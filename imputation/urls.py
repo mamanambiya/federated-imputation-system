@@ -15,8 +15,8 @@ router.register(r'result-files', views.ResultFileViewSet, basename='resultfile')
 router.register(r'user-access', views.UserServiceAccessViewSet, basename='userserviceaccess')
 router.register(r'dashboard', views.DashboardViewSet, basename='dashboard')
 
-# API URLs
-api_urlpatterns = [
+# API URL patterns (for /api/ prefix)
+api_patterns = [
     path('', include(router.urls)),
     # Test endpoint
     path('test/', views.TestView.as_view(), name='api_test'),
@@ -26,9 +26,14 @@ api_urlpatterns = [
     path('auth/user/', views.UserInfoView.as_view(), name='api_user'),
 ]
 
-# Frontend URLs (will serve React app)
-frontend_urlpatterns = [
-    path('', views.IndexView.as_view(), name='index'),
+# Frontend URL patterns (for root / prefix)
+frontend_patterns = [
+    # React application at root
+    path('', views.IndexView.as_view(), name='app'),
+    # Catch all other paths and serve React app (for client-side routing)
+    path('<path:path>', views.IndexView.as_view(), name='react_catchall'),
 ]
 
-urlpatterns = api_urlpatterns + frontend_urlpatterns 
+# Legacy: For backward compatibility, export both patterns
+# Main URLs will import these separately
+urlpatterns = frontend_patterns 

@@ -5,20 +5,96 @@
     <link rel="icon" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#000000" />
-    <meta name="description" content="Federated Imputation System - Connect to H3Africa and Michigan Imputation Services" />
+    <meta name="description" content="eLwazi Federated Imputation System - Application Interface" />
     <meta name="csrf-token" content="{{ csrf_token }}">
-    <title>Federated Imputation System</title>
+    <title>eLwazi Imputation Platform</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+                'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+                sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background: linear-gradient(135deg, #1e40af 0%, #0f766e 100%);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .container {
+            text-align: center;
+            max-width: 600px;
+            padding: 2rem;
+        }
+        .loading-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            animation: spin 2s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 24px;
+            background: white;
+            color: #1e40af;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            margin: 0.5rem;
+            transition: all 0.3s ease;
+        }
+        .btn:hover {
+            background: #f8fafc;
+            transform: translateY(-2px);
+        }
+    </style>
 </head>
 <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
+    <noscript>
+        <div class="container">
+            <h1>JavaScript Required</h1>
+            <p>You need to enable JavaScript to run this application.</p>
+        </div>
+    </noscript>
     
-    <!-- React App will be served here -->
-    <!-- In production, this would include built React assets -->
+    <div id="root">
+        <div class="container">
+            <div class="loading-icon">⚙️</div>
+            <h1>eLwazi Imputation Platform</h1>
+            <p>Loading application interface...</p>
+            <p>
+                <small>
+                    This is the authenticated application interface. 
+                    If the React application is not loading properly, 
+                    it may be running in development mode.
+                </small>
+            </p>
+            <div>
+                <a href="/" class="btn">← Back to Home</a>
+                <a href="http://localhost:3000" class="btn">Development Mode</a>
+            </div>
+        </div>
+    </div>
+    
+    <!-- In production, React assets would be included here -->
+    <!-- For development, the React dev server handles the frontend -->
     <script>
-        // For development, redirect to React dev server
+        // Check if we're in development and React dev server is available
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-            window.location.href = 'http://localhost:3000';
+            fetch('http://localhost:3000')
+                .then(() => {
+                    // React dev server is running, redirect to it
+                    window.location.href = 'http://localhost:3000';
+                })
+                .catch(() => {
+                    // React dev server not available, show message
+                    console.log('React development server not available at localhost:3000');
+                });
         }
     </script>
 </body>
