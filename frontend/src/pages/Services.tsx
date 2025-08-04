@@ -63,7 +63,7 @@ const Services: React.FC = () => {
   const [referencePanels, setReferencePanels] = useState<ReferencePanel[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [syncing, setSyncing] = useState<number | null>(null);
-  const [serviceHealth, setServiceHealth] = useState<Record<number, 'healthy' | 'unhealthy' | 'checking'>>({});
+  const [serviceHealth, setServiceHealth] = useState<Record<number, 'healthy' | 'unhealthy' | 'checking' | 'demo'>>({});
   
   // Filtering and search state
   const [searchTerm, setSearchTerm] = useState('');
@@ -156,7 +156,7 @@ const Services: React.FC = () => {
 
   const checkServicesHealth = async () => {
     const startTime = Date.now();
-    const healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking'> = {};
+    const healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking' | 'demo'> = {};
     
     // Show operation start feedback
     setOperationInProgress('Checking service health...');
@@ -605,7 +605,7 @@ const Services: React.FC = () => {
                 <MenuItem value="">All APIs</MenuItem>
                 {uniqueApiTypes.map(type => (
                   <MenuItem key={type} value={type}>
-                    {type.toUpperCase()}
+                    {type?.toUpperCase() || 'Unknown'}
                   </MenuItem>
                 ))}
               </Select>
