@@ -88,9 +88,23 @@ interface UserProfile {
   id: number;
   user: User;
   role: UserRole;
-  bio: string;
-  phone_number: string;
   organization: string;
+  department: string;
+  position: string;
+  phone: string;
+  research_area: string;
+  institution: string;
+  country: string;
+  preferred_language: string;
+  timezone: string;
+  email_notifications: boolean;
+  is_verified: boolean;
+  verification_date: string | null;
+  last_activity: string | null;
+  monthly_job_limit: number;
+  monthly_jobs_used: number;
+  storage_limit_gb: number;
+  storage_used_gb: number;
   created_at: string;
   updated_at: string;
 }
@@ -170,9 +184,13 @@ const UserManagement: React.FC = () => {
     last_name: '',
     password: '',
     role_id: '',
-    bio: '',
-    phone_number: '',
     organization: '',
+    department: '',
+    position: '',
+    phone: '',
+    research_area: '',
+    institution: '',
+    country: '',
     is_active: true,
     is_staff: false,
     is_superuser: false
@@ -252,9 +270,13 @@ const UserManagement: React.FC = () => {
       const profileData = {
         user: user.id,
         role: parseInt(userForm.role_id),
-        bio: userForm.bio,
-        phone_number: userForm.phone_number,
-        organization: userForm.organization
+        organization: userForm.organization,
+        department: userForm.department,
+        position: userForm.position,
+        phone: userForm.phone,
+        research_area: userForm.research_area,
+        institution: userForm.institution,
+        country: userForm.country
       };
 
       await apiCall('/api/profiles/', {
@@ -299,9 +321,13 @@ const UserManagement: React.FC = () => {
       // Update profile
       const profileData = {
         role: parseInt(userForm.role_id),
-        bio: userForm.bio,
-        phone_number: userForm.phone_number,
-        organization: userForm.organization
+        organization: userForm.organization,
+        department: userForm.department,
+        position: userForm.position,
+        phone: userForm.phone,
+        research_area: userForm.research_area,
+        institution: userForm.institution,
+        country: userForm.country
       };
 
       await apiCall(`/api/profiles/${selectedUser.id}/`, {
@@ -423,9 +449,13 @@ const UserManagement: React.FC = () => {
       last_name: '',
       password: '',
       role_id: '',
-      bio: '',
-      phone_number: '',
       organization: '',
+      department: '',
+      position: '',
+      phone: '',
+      research_area: '',
+      institution: '',
+      country: '',
       is_active: true,
       is_staff: false,
       is_superuser: false
@@ -450,9 +480,13 @@ const UserManagement: React.FC = () => {
         last_name: user.user.last_name,
         password: '',
         role_id: user.role.id.toString(),
-        bio: user.bio,
-        phone_number: user.phone_number,
-        organization: user.organization,
+        organization: user.organization || '',
+        department: user.department || '',
+        position: user.position || '',
+        phone: user.phone || '',
+        research_area: user.research_area || '',
+        institution: user.institution || '',
+        country: user.country || '',
         is_active: user.user.is_active,
         is_staff: user.user.is_staff,
         is_superuser: user.user.is_superuser
@@ -847,22 +881,54 @@ const UserManagement: React.FC = () => {
                 onChange={(e) => setUserForm({ ...userForm, organization: e.target.value })}
               />
             </Grid>
-            <Grid item xs={12}>
+            <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                label="Phone Number"
-                value={userForm.phone_number}
-                onChange={(e) => setUserForm({ ...userForm, phone_number: e.target.value })}
+                label="Department"
+                value={userForm.department}
+                onChange={(e) => setUserForm({ ...userForm, department: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Position"
+                value={userForm.position}
+                onChange={(e) => setUserForm({ ...userForm, position: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Phone"
+                value={userForm.phone}
+                onChange={(e) => setUserForm({ ...userForm, phone: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Institution"
+                value={userForm.institution}
+                onChange={(e) => setUserForm({ ...userForm, institution: e.target.value })}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                fullWidth
+                label="Country"
+                value={userForm.country}
+                onChange={(e) => setUserForm({ ...userForm, country: e.target.value })}
               />
             </Grid>
             <Grid item xs={12}>
               <TextField
                 fullWidth
-                label="Bio"
+                label="Research Area"
                 multiline
                 rows={3}
-                value={userForm.bio}
-                onChange={(e) => setUserForm({ ...userForm, bio: e.target.value })}
+                value={userForm.research_area}
+                onChange={(e) => setUserForm({ ...userForm, research_area: e.target.value })}
               />
             </Grid>
             <Grid item xs={12}>

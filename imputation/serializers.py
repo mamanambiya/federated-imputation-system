@@ -68,10 +68,13 @@ class UserProfileSerializer(serializers.ModelSerializer):
     role_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     quota_percentage = serializers.ReadOnlyField()
     
+    # Include user information for frontend compatibility
+    user = serializers.SerializerMethodField()
+    
     class Meta:
         model = UserProfile
         fields = [
-            'id', 'role', 'role_id', 'organization', 'department', 'position',
+            'id', 'user', 'role', 'role_id', 'organization', 'department', 'position',
             'phone', 'research_area', 'institution', 'country',
             'preferred_language', 'timezone', 'email_notifications',
             'is_verified', 'verification_date', 'last_activity',
@@ -79,9 +82,24 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'storage_used_gb', 'quota_percentage', 'created_at', 'updated_at'
         ]
         read_only_fields = [
-            'id', 'verification_date', 'last_activity', 'monthly_jobs_used',
+            'id', 'user', 'verification_date', 'last_activity', 'monthly_jobs_used',
             'storage_used_gb', 'quota_percentage', 'created_at', 'updated_at'
         ]
+    
+    def get_user(self, obj):
+        """Return user information for the profile."""
+        return {
+            'id': obj.user.id,
+            'username': obj.user.username,
+            'email': obj.user.email,
+            'first_name': obj.user.first_name,
+            'last_name': obj.user.last_name,
+            'is_active': obj.user.is_active,
+            'is_staff': obj.user.is_staff,
+            'is_superuser': obj.user.is_superuser,
+            'date_joined': obj.user.date_joined,
+            'last_login': obj.user.last_login,
+        }
     
     def update(self, instance, validated_data):
         role_id = validated_data.pop('role_id', None)
