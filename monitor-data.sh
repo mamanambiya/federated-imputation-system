@@ -32,7 +32,7 @@ if [ "$SERVICES_COUNT" -lt "$MIN_SERVICES" ] || [ "$PANELS_COUNT" -lt "$MIN_PANE
         echo "🛠️  Recreating services data..."
         sudo docker-compose exec -T web python manage.py create_initial_data
         sudo docker-compose exec -T web python manage.py setup_example_services
-        sudo docker-compose exec -T web python /app/add_missing_service.py
+        sudo docker-compose exec -T web python manage.py add_elwazi_omics
         
         # Verify restoration
         NEW_SERVICES_COUNT=$(sudo docker-compose exec -T db psql -U postgres -d federated_imputation -t -c "SELECT count(*) FROM imputation_imputationservice;" | xargs)

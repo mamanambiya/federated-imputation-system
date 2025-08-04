@@ -64,7 +64,7 @@ You were experiencing data loss with imputation services disappearing from the d
 # Method 2: Recreate data
 sudo docker-compose exec web python manage.py create_initial_data
 sudo docker-compose exec web python manage.py setup_example_services
-sudo docker-compose exec web python /app/add_missing_service.py
+sudo docker-compose exec web python manage.py add_elwazi_omics
 ```
 
 ### If Database Is Completely Gone:
@@ -73,7 +73,7 @@ sudo docker-compose exec web python /app/add_missing_service.py
 sudo docker-compose exec db createdb -U postgres federated_imputation
 
 # Restore data
-./restore-db.sh ./backups/federated_imputation_complete_with_inserts_20250804_131727.sql
+./restore-db.sh ./backups/federated_imputation_complete_5_services_20250804_132337.sql
 ```
 
 ## 📊 Current Data Status
@@ -124,7 +124,7 @@ If data loss persists:
 - **Backups Directory**: `./backups/`
 - **Restore Script**: `./restore-db.sh`
 - **Monitor Script**: `./monitor-data.sh`
-- **Latest Backup**: `./backups/federated_imputation_complete_with_inserts_20250804_131727.sql`
+- **Latest Backup**: `./backups/federated_imputation_complete_5_services_20250804_132337.sql`
 
 ---
 *Last Updated: August 4, 2025*
