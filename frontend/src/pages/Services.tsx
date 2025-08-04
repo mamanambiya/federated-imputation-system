@@ -342,13 +342,14 @@ const Services: React.FC = () => {
     }
   }, [services]);
 
-  const checkServicesHealth = async () => {
+  const checkServicesHealth = async (forceCheck: boolean = false) => {
     const startTime = Date.now();
     const healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking' | 'demo'> = {};
     
     // Show operation start feedback
     setOperationInProgress('Checking service health...');
-    showFeedback(`Starting health check for ${services.length} services...`, 'info');
+    const actionText = forceCheck ? 'force checking' : 'checking';
+    showFeedback(`Starting ${actionText} for ${services.length} services...`, 'info');
     
     // Set all services to checking status initially
     services.forEach(service => {
@@ -359,44 +360,55 @@ const Services: React.FC = () => {
     let healthyCount = 0;
     let unhealthyCount = 0;
     let checkedCount = 0;
+    let cachedCount = 0;
+    let freshCount = 0;
 
     // Check each service health using backend health check API
     for (const service of services) {
       try {
         setOperationInProgress(`Checking ${service.name}... (${checkedCount + 1}/${services.length})`);
         
-        const response = await fetch(
-          `${process.env.REACT_APP_API_URL}/api/services/${service.id}/health/`,
-          {
-            credentials: 'include',
-          }
-        );
+        const url = `${process.env.REACT_APP_API_URL}/api/services/${service.id}/health/${forceCheck ? '?force=true' : ''}`;
+        const response = await fetch(url, {
+          credentials: 'include',
+        });
         
         if (response.ok) {
           const healthData = await response.json();
-          const isHealthy = healthData.status === 'healthy';
-          healthStatus[service.id] = isHealthy ? 'healthy' : 'unhealthy';
+          const status = healthData.status;
           
-          if (isHealthy) {
-            healthyCount++;
-          } else if (healthData.status === 'demo') {
-            // Demo services are expected to be unavailable
-            healthyCount++; // Count as healthy for demo purposes
+          // Count cache vs fresh checks
+          if (healthData.cache_info?.from_cache) {
+            cachedCount++;
           } else {
+            freshCount++;
+          }
+          
+          // Update status
+          if (status === 'demo') {
+            healthStatus[service.id] = 'demo';
+            healthyCount++; // Count demo as healthy for reporting
+          } else if (status === 'healthy') {
+            healthStatus[service.id] = 'healthy';
+            healthyCount++;
+          } else {
+            healthStatus[service.id] = 'unhealthy';
             unhealthyCount++;
           }
           
-          // Log detailed health info for debugging
+          // Log detailed health info with cache information
           console.log(`Health check for ${service.name}:`, {
             status: healthData.status,
             message: healthData.message,
             test_url: healthData.test_url,
-            response_time: healthData.response_time_ms
+            response_time: healthData.response_time_ms,
+            cache_info: healthData.cache_info
           });
         } else {
           console.error(`Health check API failed for ${service.name}: HTTP ${response.status}`);
           healthStatus[service.id] = 'unhealthy';
           unhealthyCount++;
+          freshCount++; // Failed checks are fresh attempts
         }
         
       } catch (error) {
@@ -409,6 +421,7 @@ const Services: React.FC = () => {
           healthStatus[service.id] = 'unhealthy';
           unhealthyCount++;
         }
+        freshCount++; // Failed checks are fresh attempts
       }
       
       checkedCount++;
@@ -417,23 +430,24 @@ const Services: React.FC = () => {
     setServiceHealth({ ...healthStatus });
     setOperationInProgress(null);
     
-    // Show comprehensive completion feedback
+    // Show comprehensive completion feedback with cache statistics
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
     const totalServices = services.length;
+    const cacheInfo = cachedCount > 0 ? ` (${cachedCount} from cache, ${freshCount} fresh)` : ` (all fresh)`;
     
     if (unhealthyCount === 0) {
       showFeedback(
-        `✅ Health check complete! All ${totalServices} services are healthy (${duration}s)`,
+        `✅ Health check complete! All ${totalServices} services are healthy (${duration}s)${cacheInfo}`,
         'success'
       );
     } else if (healthyCount === 0) {
       showFeedback(
-        `⚠️ Health check complete! All ${totalServices} services are unhealthy (${duration}s)`,
+        `⚠️ Health check complete! All ${totalServices} services are unhealthy (${duration}s)${cacheInfo}`,
         'error'
       );
     } else {
       showFeedback(
-        `ℹ️ Health check complete! ${healthyCount} healthy, ${unhealthyCount} unhealthy out of ${totalServices} services (${duration}s)`,
+        `ℹ️ Health check complete! ${healthyCount} healthy, ${unhealthyCount} unhealthy out of ${totalServices} services (${duration}s)${cacheInfo}`,
         'warning'
       );
     }
@@ -667,14 +681,26 @@ const Services: React.FC = () => {
             Select an imputation service to view available reference panels and submit jobs.
           </Typography>
         </Box>
-        <Button
-          variant="outlined"
-          startIcon={<Sync />}
-          onClick={checkServicesHealth}
-          disabled={Object.values(serviceHealth).some(status => status === 'checking')}
-        >
-          Check Status
-        </Button>
+        <Box display="flex" gap={1}>
+          <Button
+            variant="outlined"
+            startIcon={<Sync />}
+            onClick={() => checkServicesHealth(false)}
+            disabled={Object.values(serviceHealth).some(status => status === 'checking')}
+          >
+            Check Status
+          </Button>
+          <Button
+            variant="outlined"
+            color="secondary"
+            startIcon={<Sync />}
+            onClick={() => checkServicesHealth(true)}
+            disabled={Object.values(serviceHealth).some(status => status === 'checking')}
+            title="Force fresh health check, bypassing cache"
+          >
+            Force Check
+          </Button>
+        </Box>
       </Box>
 
       {/* API Type Legend */}

@@ -6,7 +6,7 @@ from typing import Dict, Any
 from celery import shared_task
 from django.utils import timezone
 from .models import ImputationJob, JobStatusUpdate, ResultFile
-from .services import get_service_instance, sync_reference_panels
+from . import services as imputation_services
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ def submit_imputation_job(self, job_id: str, file_path: str = None):
     """Submit an imputation job to the external service."""
     try:
         job = ImputationJob.objects.get(id=job_id)
-        service_instance = get_service_instance(job.service.id)
+        service_instance = imputation_services.get_service_instance(job.service.id)
         
         # Read file data
         if file_path:
@@ -91,7 +91,7 @@ def monitor_job_status(self, job_id: str):
             logger.info(f"Job {job_id} already in terminal state: {job.status}")
             return {'status': job.status}
         
-        service_instance = get_service_instance(job.service.id)
+        service_instance = imputation_services.get_service_instance(job.service.id)
         status_data = service_instance.get_job_status(job.external_job_id)
         
         # Update job status
@@ -181,7 +181,7 @@ def download_job_results(self, job_id: str):
             logger.error(f"Job {job_id} has no external job ID")
             return {'status': 'error', 'message': 'No external job ID'}
         
-        service_instance = get_service_instance(job.service.id)
+        service_instance = imputation_services.get_service_instance(job.service.id)
         result_files = service_instance.download_results(job.external_job_id)
         
         # Create ResultFile objects
@@ -264,7 +264,7 @@ def cancel_imputation_job(job_id: str):
             return {'status': 'success', 'message': 'Job cancelled locally'}
         
         # Cancel with external service
-        service_instance = get_service_instance(job.service.id)
+        service_instance = imputation_services.get_service_instance(job.service.id)
         success = service_instance.cancel_job(job.external_job_id)
         
         if success:
@@ -289,7 +289,7 @@ def cancel_imputation_job(job_id: str):
 def sync_service_reference_panels(service_id: int):
     """Sync reference panels from an external service."""
     try:
-        synced_count = sync_reference_panels(service_id)
+        synced_count = imputation_services.sync_reference_panels(service_id)
         logger.info(f"Synced {synced_count} reference panels for service {service_id}")
         return {'status': 'success', 'synced_count': synced_count}
         
@@ -333,7 +333,7 @@ def health_check_services():
     
     for service in ImputationService.objects.filter(is_active=True):
         try:
-            service_instance = get_service_instance(service.id)
+            service_instance = imputation_services.get_service_instance(service.id)
             # Try to fetch reference panels as a health check
             panels = service_instance.get_reference_panels()
             results[service.name] = {

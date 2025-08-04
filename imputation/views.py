@@ -17,6 +17,7 @@ from django.contrib.auth.models import User, Group, Permission
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.utils import timezone
+from .services.cache_service import health_cache
 from .models import (
     ImputationService, ReferencePanel, ImputationJob,
     JobStatusUpdate, ResultFile, UserServiceAccess, UserRole, UserProfile,
@@ -35,7 +36,7 @@ from .serializers import (
 )
 from .tasks import (
     submit_imputation_job, cancel_imputation_job,
-    sync_reference_panels
+    sync_service_reference_panels as sync_reference_panels
 )
 
 logger = logging.getLogger(__name__)
@@ -151,9 +152,54 @@ class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
     
     @action(detail=True, methods=['get'])
     def health(self, request, pk=None):
-        """Check the health status of a specific service."""
+        """Check the health status of a specific service with intelligent caching."""
         service = self.get_object()
         
+        # Determine if this is a user-initiated request or system-initiated
+        # User-initiated requests typically have specific headers or query params
+        force_check = request.query_params.get('force', '').lower() in ['true', '1', 'yes']
+        is_user_request = request.user.is_authenticated or force_check
+        
+        # Check cache first
+        if not force_check:
+            should_check, cached_data = health_cache.should_check_health(service.id, is_user_request)
+            if not should_check and cached_data:
+                # Return cached data with additional metadata
+                response_data = dict(cached_data)
+                # Remove internal cache metadata from response
+                for key in list(response_data.keys()):
+                    if key.startswith('_'):
+                        del response_data[key]
+                
+                # Add cache metadata for debugging
+                cache_info = health_cache.get_service_cache_info(service.id)
+                response_data['cache_info'] = {
+                    'from_cache': True,
+                    'cached_at': cache_info.get('cached_at'),
+                    'age_seconds': cache_info.get('age_seconds'),
+                    'ttl_seconds': cache_info.get('ttl_seconds')
+                }
+                
+                logger.debug(f"Returning cached health for service {service.id}: {response_data.get('status')}")
+                return Response(response_data, status=status.HTTP_200_OK)
+        
+        # Perform actual health check
+        health_data = self._perform_health_check(service)
+        
+        # Cache the result
+        health_cache.set_cached_health(service.id, health_data, is_user_request)
+        
+        # Add cache metadata
+        health_data['cache_info'] = {
+            'from_cache': False,
+            'just_checked': True,
+            'is_user_request': is_user_request
+        }
+        
+        return Response(health_data, status=status.HTTP_200_OK)
+    
+    def _perform_health_check(self, service):
+        """Perform the actual health check without caching logic."""
         try:
             import requests
             from requests.exceptions import RequestException, Timeout, ConnectionError
@@ -186,17 +232,17 @@ class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
             
             # Check if the response indicates the service is healthy
             if response.status_code in [200, 201, 202]:
-                return Response({
+                return {
                     'service_id': service.id,
                     'service_name': service.name,
                     'status': 'healthy',
                     'message': f'Service responded with HTTP {response.status_code}',
                     'test_url': test_url,
                     'response_time_ms': int(response.elapsed.total_seconds() * 1000)
-                }, status=status.HTTP_200_OK)
+                }
             elif service.api_type == 'michigan' and response.status_code == 401:
                 # For Michigan services, HTTP 401 (Unauthorized) indicates the API is online and functioning
-                return Response({
+                return {
                     'service_id': service.id,
                     'service_name': service.name,
                     'status': 'healthy',
@@ -204,69 +250,136 @@ class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
                     'test_url': test_url,
                     'response_time_ms': int(response.elapsed.total_seconds() * 1000),
                     'api_response': 'Unauthorized - API is functioning properly'
-                }, status=status.HTTP_200_OK)
+                }
             else:
-                return Response({
+                return {
                     'service_id': service.id,
                     'service_name': service.name,
                     'status': 'unhealthy',
                     'message': f'Service responded with HTTP {response.status_code}',
                     'test_url': test_url,
                     'error': f'HTTP_{response.status_code}'
-                }, status=status.HTTP_200_OK)  # Still return 200 but with unhealthy status
+                }
             
         except Timeout:
             logger.error(f"Timeout checking {service.name} at {test_url}")
-            return Response({
+            return {
                 'service_id': service.id,
                 'service_name': service.name,
                 'status': 'unhealthy',
                 'message': 'Service request timed out (10s)',
                 'test_url': test_url,
                 'error': 'Timeout'
-            }, status=status.HTTP_200_OK)
+            }
             
         except ConnectionError:
             # For demo services, provide more informative messages
             if 'elwazi' in service.api_url.lower() or 'icermali' in service.api_url.lower():
                 message = 'Demo service - not currently accessible (expected for development)'
-                status = 'demo'
+                health_status = 'demo'
             else:
                 message = 'Unable to connect to service'
-                status = 'unhealthy'
+                health_status = 'unhealthy'
             
             logger.warning(f"Connection error checking {service.name} at {test_url} - {message}")
-            return Response({
+            return {
                 'service_id': service.id,
                 'service_name': service.name,
-                'status': status,
+                'status': health_status,
                 'message': message,
                 'test_url': test_url,
                 'error': 'ConnectionError',
                 'note': 'This is expected for demo/development services'
-            }, status=status.HTTP_200_OK)
+            }
             
         except RequestException as exc:
             logger.error(f"Request error checking {service.name} at {test_url}: {exc}")
-            return Response({
+            return {
                 'service_id': service.id,
                 'service_name': service.name,
                 'status': 'unhealthy',
                 'message': f'Request failed: {str(exc)}',
                 'test_url': test_url,
                 'error': 'RequestException'
-            }, status=status.HTTP_200_OK)
+            }
             
         except Exception as exc:
             logger.error(f"Unexpected error checking {service.name} at {test_url}: {exc}")
-            return Response({
+            return {
                 'service_id': service.id,
                 'service_name': service.name,
                 'status': 'unhealthy',
                 'message': f'Unexpected error: {str(exc)}',
                 'test_url': test_url,
                 'error': type(exc).__name__
-            }, status=status.HTTP_200_OK)
+            }
+    
+    @action(detail=True, methods=['get'])
+    def cache_info(self, request, pk=None):
+        """Get cache information for a specific service."""
+        service = self.get_object()
+        cache_info = health_cache.get_service_cache_info(service.id)
+        
+        return Response({
+            'service_id': service.id,
+            'service_name': service.name,
+            'cache_info': cache_info
+        })
+    
+    @action(detail=True, methods=['post'])
+    def clear_cache(self, request, pk=None):
+        """Clear cache for a specific service."""
+        service = self.get_object()
+        health_cache.clear_service_cache(service.id)
+        
+        log_audit_event(
+            request.user,
+            'clear_cache',
+            'ImputationService',
+            service.id,
+            {'service_name': service.name},
+            request
+        )
+        
+        return Response({
+            'message': f'Cache cleared for {service.name}',
+            'service_id': service.id
+        })
+    
+    @action(detail=False, methods=['get'])
+    def cache_stats(self, request):
+        """Get global cache statistics."""
+        stats = health_cache.get_cache_stats()
+        
+        return Response({
+            'cache_stats': stats,
+            'timestamp': timezone.now().isoformat()
+        })
+    
+    @action(detail=False, methods=['post'])
+    def clear_all_cache(self, request):
+        """Clear all health check cache (admin only)."""
+        if not request.user.is_authenticated or not (
+            request.user.is_superuser or 
+            (hasattr(request.user, 'profile') and request.user.profile.is_admin())
+        ):
+            return Response(
+                {'error': 'Admin privileges required'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        health_cache.clear_all_cache()
+        
+        log_audit_event(
+            request.user,
+            'clear_all_cache',
+            'HealthCheckCache',
+            None,
+            {'action': 'clear_all_health_cache'},
+            request
+        )
+        
+        return Response({'message': 'All health check cache cleared'})
     
     @action(detail=False, methods=['get'])
     def health_all(self, request):
