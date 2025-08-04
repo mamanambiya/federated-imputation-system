@@ -10,12 +10,16 @@ import {
   Menu,
   MenuItem,
   Divider,
+  Snackbar,
+  Alert,
+  Fade,
 } from '@mui/material';
 import {
   AccountCircle,
   Logout,
   Settings,
   Menu as MenuIcon,
+  Info,
 } from '@mui/icons-material';
 import { useAuth } from '../../contexts/AuthContext';
 import Header from './Header';
@@ -28,6 +32,30 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  
+  // Feedback state
+  const [snackbar, setSnackbar] = useState<{
+    open: boolean;
+    message: string;
+    severity: 'success' | 'error' | 'warning' | 'info';
+  }>({
+    open: false,
+    message: '',
+    severity: 'info'
+  });
+
+  // Feedback helper functions
+  const showFeedback = (message: string, severity: 'success' | 'error' | 'warning' | 'info') => {
+    setSnackbar({
+      open: true,
+      message,
+      severity
+    });
+  };
+
+  const closeFeedback = () => {
+    setSnackbar(prev => ({ ...prev, open: false }));
+  };
 
   const handleMenu = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -49,14 +77,24 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
 
   const handleLogout = async () => {
     handleClose();
+    showFeedback('Signing out...', 'info');
+    
     try {
       await logout();
-      // Navigate to landing page after successful logout
-      navigate('/');
+      showFeedback('✅ Successfully signed out. Redirecting to home page...', 'success');
+      
+      // Small delay to show the success message before redirect
+      setTimeout(() => {
+        navigate('/');
+      }, 1500);
     } catch (error) {
       console.error('Logout error:', error);
-      // Even if logout fails, redirect to landing page
-      navigate('/');
+      showFeedback('⚠️ Logout encountered an issue, but you have been signed out', 'warning');
+      
+      // Even if logout fails, redirect to landing page after showing message
+      setTimeout(() => {
+        navigate('/');
+      }, 2000);
     }
   };
 
@@ -120,6 +158,32 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
           </>
         )}
       </Box>
+
+      {/* Feedback Snackbar */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={snackbar.severity === 'success' ? 5000 : 4000}
+        onClose={closeFeedback}
+        TransitionComponent={Fade}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        sx={{ mt: 7 }} // Add margin to account for AppBar height
+      >
+        <Alert
+          onClose={closeFeedback}
+          severity={snackbar.severity}
+          variant="filled"
+          sx={{ 
+            width: '100%',
+            '& .MuiAlert-message': {
+              fontSize: '0.95rem',
+              fontWeight: 500
+            }
+          }}
+          icon={snackbar.severity === 'info' ? <Info /> : undefined}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </>
   );
 };

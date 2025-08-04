@@ -240,13 +240,19 @@ const Services: React.FC = () => {
   const loadServices = async () => {
     try {
       setLoading(true);
+      setOperationInProgress('Loading imputation services...');
       const data = await getServices();
       setServices(data);
+      setError(null);
+      showFeedback(`Successfully loaded ${data.length} imputation services`, 'success');
     } catch (err) {
-      setError('Failed to load services');
+      const errorMessage = 'Failed to load imputation services. Please check your connection and try again.';
+      setError(errorMessage);
+      showFeedback(errorMessage, 'error');
       console.error('Error loading services:', err);
     } finally {
       setLoading(false);
+      setOperationInProgress(null);
     }
   };
 
@@ -254,24 +260,53 @@ const Services: React.FC = () => {
     try {
       setSelectedService(service);
       setDialogOpen(true);
+      setOperationInProgress(`Loading reference panels for ${service.name}...`);
+      showFeedback(`Opening details for ${service.name}`, 'info');
+      
       const panels = await getServiceReferencePanels(service.id);
       setReferencePanels(panels);
+      setOperationInProgress(null);
+      
+      if (panels.length === 0) {
+        showFeedback(`No reference panels found for ${service.name}`, 'warning');
+      } else {
+        showFeedback(`Loaded ${panels.length} reference panels for ${service.name}`, 'success');
+      }
     } catch (err) {
+      setOperationInProgress(null);
+      const errorMessage = `Failed to load reference panels for ${service.name}`;
+      showFeedback(errorMessage, 'error');
       console.error('Error loading reference panels:', err);
     }
   };
 
   const handleSyncPanels = async (serviceId: number) => {
+    const service = services.find(s => s.id === serviceId);
+    const serviceName = service?.name || `Service ${serviceId}`;
+    
     try {
       setSyncing(serviceId);
+      setOperationInProgress(`Syncing reference panels for ${serviceName}...`);
+      showFeedback(`Starting sync for ${serviceName}`, 'info');
+      
       await syncReferencePanels(serviceId);
+      
       // Refresh the service data
+      setOperationInProgress(`Refreshing service data...`);
       await loadServices();
+      
       if (selectedService && selectedService.id === serviceId) {
         const panels = await getServiceReferencePanels(serviceId);
         setReferencePanels(panels);
       }
+      
+      setOperationInProgress(null);
+      showFeedback(`✅ Sync completed successfully for ${serviceName}`, 'success');
+      
     } catch (err) {
+      setOperationInProgress(null);
+      const errorMessage = `Failed to sync reference panels for ${serviceName}`;
+      showFeedback(errorMessage, 'error');
       console.error('Error syncing panels:', err);
     } finally {
       setSyncing(null);
@@ -793,6 +828,47 @@ const Services: React.FC = () => {
           </>
         )}
       </Dialog>
+
+      {/* Operation Progress Backdrop */}
+      {operationInProgress && (
+        <Backdrop open={true} sx={{ color: '#fff', zIndex: (theme) => theme.zIndex.modal + 1 }}>
+          <Box display="flex" flexDirection="column" alignItems="center" gap={2}>
+            <CircularProgress size={60} />
+            <Typography variant="h6" align="center">
+              {operationInProgress}
+            </Typography>
+          </Box>
+        </Backdrop>
+      )}
+
+      {/* Feedback Snackbar */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={snackbar.severity === 'error' ? 8000 : 4000}
+        onClose={closeFeedback}
+        TransitionComponent={Fade}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <MuiAlert
+          onClose={closeFeedback}
+          severity={snackbar.severity}
+          variant="filled"
+          sx={{ 
+            width: '100%',
+            '& .MuiAlert-message': {
+              fontSize: '0.95rem',
+              fontWeight: 500
+            }
+          }}
+          icon={
+            snackbar.severity === 'success' ? <CheckCircleOutline /> :
+            snackbar.severity === 'warning' ? <WarningAmber /> :
+            snackbar.severity === 'info' ? <Info /> : undefined
+          }
+        >
+          {snackbar.message}
+        </MuiAlert>
+      </Snackbar>
     </Box>
   );
 };
