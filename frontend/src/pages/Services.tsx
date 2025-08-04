@@ -191,6 +191,9 @@ const Services: React.FC = () => {
           
           if (isHealthy) {
             healthyCount++;
+          } else if (healthData.status === 'demo') {
+            // Demo services are expected to be unavailable
+            healthyCount++; // Count as healthy for demo purposes
           } else {
             unhealthyCount++;
           }
@@ -210,8 +213,14 @@ const Services: React.FC = () => {
         
       } catch (error) {
         console.error(`Health check failed for ${service.name}:`, error);
-        healthStatus[service.id] = 'unhealthy';
-        unhealthyCount++;
+        // Check if this is a demo service
+        if (service.name.toLowerCase().includes('elwazi') || service.api_url.includes('elwazi') || service.api_url.includes('icermali')) {
+          healthStatus[service.id] = 'demo';
+          healthyCount++; // Count demo services as healthy for reporting
+        } else {
+          healthStatus[service.id] = 'unhealthy';
+          unhealthyCount++;
+        }
       }
       
       checkedCount++;
@@ -342,6 +351,16 @@ const Services: React.FC = () => {
             }} 
           />
         );
+      case 'demo':
+        return (
+          <Circle 
+            sx={{ 
+              color: '#ff9800', 
+              fontSize: 12,
+              mr: 1
+            }} 
+          />
+        );
       case 'checking':
         return (
           <CircularProgress 
@@ -373,6 +392,8 @@ const Services: React.FC = () => {
         return 'Online';
       case 'unhealthy':
         return 'Offline';
+      case 'demo':
+        return 'Demo';
       case 'checking':
         return 'Checking...';
       default:

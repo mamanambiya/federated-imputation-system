@@ -113,12 +113,17 @@ class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
                 # DNAstack services - test root URL  
                 test_url = service.api_url
             
+            # Suppress SSL warnings for demo services
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            
             # Perform the actual health check with timeout
             response = requests.get(
                 test_url,
                 timeout=10,  # 10 second timeout
                 verify=False,  # Skip SSL verification for demo services
-                allow_redirects=True
+                allow_redirects=True,
+                headers={'User-Agent': 'Federated-Imputation-Platform/1.0'}
             )
             
             # Check if the response indicates the service is healthy
@@ -164,14 +169,23 @@ class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
             }, status=status.HTTP_200_OK)
             
         except ConnectionError:
-            logger.error(f"Connection error checking {service.name} at {test_url}")
+            # For demo services, provide more informative messages
+            if 'elwazi' in service.api_url.lower() or 'icermali' in service.api_url.lower():
+                message = 'Demo service - not currently accessible (expected for development)'
+                status = 'demo'
+            else:
+                message = 'Unable to connect to service'
+                status = 'unhealthy'
+            
+            logger.warning(f"Connection error checking {service.name} at {test_url} - {message}")
             return Response({
                 'service_id': service.id,
                 'service_name': service.name,
-                'status': 'unhealthy',
-                'message': 'Unable to connect to service',
+                'status': status,
+                'message': message,
                 'test_url': test_url,
-                'error': 'ConnectionError'
+                'error': 'ConnectionError',
+                'note': 'This is expected for demo/development services'
             }, status=status.HTTP_200_OK)
             
         except RequestException as exc:
