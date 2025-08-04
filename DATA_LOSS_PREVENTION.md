@@ -19,14 +19,14 @@ You were experiencing data loss with imputation services disappearing from the d
 ## 🛠️ Solutions Implemented
 
 ### 1. **Comprehensive Backup System**
-- **Current Backup**: `federated_imputation_complete_with_inserts_20250804_131727.sql`
+- **Current Backup**: `federated_imputation_complete_5_services_20250804_132337.sql`
 - **Format**: INSERT statements for easy restoration
-- **Content**: 4 services + 12 reference panels + full schema
+- **Content**: 5 services + 14 reference panels + full schema
 
 ### 2. **Restoration Script** (`restore-db.sh`)
 ```bash
 # Usage:
-./restore-db.sh ./backups/federated_imputation_complete_with_inserts_20250804_131727.sql
+./restore-db.sh ./backups/federated_imputation_complete_5_services_20250804_132337.sql
 ```
 
 **Features:**
@@ -47,9 +47,9 @@ You were experiencing data loss with imputation services disappearing from the d
 ```
 
 **Features:**
-- Checks for minimum data thresholds (4 services, 10 panels)
+- Checks for minimum data thresholds (5 services, 14 panels)
 - Auto-detects data loss
-- Auto-restores data using management commands
+- Auto-restores data using management commands + missing service script
 - Creates new backup after restoration
 - Tests API endpoints
 - Logs all activities
@@ -64,6 +64,7 @@ You were experiencing data loss with imputation services disappearing from the d
 # Method 2: Recreate data
 sudo docker-compose exec web python manage.py create_initial_data
 sudo docker-compose exec web python manage.py setup_example_services
+sudo docker-compose exec web python /app/add_missing_service.py
 ```
 
 ### If Database Is Completely Gone:
@@ -82,8 +83,9 @@ sudo docker-compose exec db createdb -U postgres federated_imputation
 2. Michigan Imputation Server (3 panels) 
 3. eLwazi Node Imputation Service (2 panels)
 4. ILIFU GA4GH Starter Kit (2 panels)
+5. eLwazi Omics Platform (2 panels)
 
-**Total**: 4 services, 12 reference panels
+**Total**: 5 services, 14 reference panels
 
 ## 🔄 Prevention Best Practices
 
