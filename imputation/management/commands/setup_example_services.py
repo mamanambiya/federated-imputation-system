@@ -9,7 +9,7 @@ class Command(BaseCommand):
         # Example GA4GH WES services
         ga4gh_services = [
             {
-                'name': 'eLwazi Node Imputation Service',
+                'name': 'eLwazi MALI Node - Imputation Service',
                 'service_type': 'h3africa',
                 'api_type': 'ga4gh',
                 'api_url': 'http://elwazi-node.icermali.org:6000/ga4gh/wes/v1',

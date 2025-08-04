@@ -28,6 +28,11 @@ import {
   MenuItem,
   Paper,
   IconButton,
+  Snackbar,
+  Alert as MuiAlert,
+  AlertProps,
+  Fade,
+  Backdrop,
 } from '@mui/material';
 import {
   CloudUpload,
@@ -42,6 +47,9 @@ import {
   Search,
   FilterList,
   Clear,
+  Info,
+  CheckCircleOutline,
+  WarningAmber,
 } from '@mui/icons-material';
 import { useApi, ImputationService, ReferencePanel } from '../contexts/ApiContext';
 
@@ -63,6 +71,18 @@ const Services: React.FC = () => {
   const [filterApiType, setFilterApiType] = useState('');
   const [filterHealthStatus, setFilterHealthStatus] = useState('');
   const [filterLocation, setFilterLocation] = useState('');
+
+  // Feedback and notification state
+  const [snackbar, setSnackbar] = useState<{
+    open: boolean;
+    message: string;
+    severity: 'success' | 'error' | 'warning' | 'info';
+  }>({
+    open: false,
+    message: '',
+    severity: 'info'
+  });
+  const [operationInProgress, setOperationInProgress] = useState<string | null>(null);
 
   useEffect(() => {
     loadServices();
@@ -107,6 +127,20 @@ const Services: React.FC = () => {
     setFilterApiType('');
     setFilterHealthStatus('');
     setFilterLocation('');
+    showFeedback('All filters cleared', 'info');
+  };
+
+  // Feedback helper functions
+  const showFeedback = (message: string, severity: 'success' | 'error' | 'warning' | 'info') => {
+    setSnackbar({
+      open: true,
+      message,
+      severity
+    });
+  };
+
+  const closeFeedback = () => {
+    setSnackbar(prev => ({ ...prev, open: false }));
   };
 
   useEffect(() => {
@@ -116,7 +150,12 @@ const Services: React.FC = () => {
   }, [services]);
 
   const checkServicesHealth = async () => {
+    const startTime = Date.now();
     const healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking'> = {};
+    
+    // Show operation start feedback
+    setOperationInProgress('Checking service health...');
+    showFeedback(`Starting health check for ${services.length} services...`, 'info');
     
     // Set all services to checking status initially
     services.forEach(service => {
@@ -124,9 +163,15 @@ const Services: React.FC = () => {
     });
     setServiceHealth(healthStatus);
 
+    let healthyCount = 0;
+    let unhealthyCount = 0;
+    let checkedCount = 0;
+
     // Check each service health using backend health check API
     for (const service of services) {
       try {
+        setOperationInProgress(`Checking ${service.name}... (${checkedCount + 1}/${services.length})`);
+        
         const response = await fetch(
           `${process.env.REACT_APP_API_URL}/api/services/${service.id}/health/`,
           {
@@ -136,7 +181,14 @@ const Services: React.FC = () => {
         
         if (response.ok) {
           const healthData = await response.json();
-          healthStatus[service.id] = healthData.status === 'healthy' ? 'healthy' : 'unhealthy';
+          const isHealthy = healthData.status === 'healthy';
+          healthStatus[service.id] = isHealthy ? 'healthy' : 'unhealthy';
+          
+          if (isHealthy) {
+            healthyCount++;
+          } else {
+            unhealthyCount++;
+          }
           
           // Log detailed health info for debugging
           console.log(`Health check for ${service.name}:`, {
@@ -148,15 +200,41 @@ const Services: React.FC = () => {
         } else {
           console.error(`Health check API failed for ${service.name}: HTTP ${response.status}`);
           healthStatus[service.id] = 'unhealthy';
+          unhealthyCount++;
         }
         
       } catch (error) {
         console.error(`Health check failed for ${service.name}:`, error);
         healthStatus[service.id] = 'unhealthy';
+        unhealthyCount++;
       }
+      
+      checkedCount++;
     }
     
     setServiceHealth({ ...healthStatus });
+    setOperationInProgress(null);
+    
+    // Show comprehensive completion feedback
+    const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+    const totalServices = services.length;
+    
+    if (unhealthyCount === 0) {
+      showFeedback(
+        `✅ Health check complete! All ${totalServices} services are healthy (${duration}s)`,
+        'success'
+      );
+    } else if (healthyCount === 0) {
+      showFeedback(
+        `⚠️ Health check complete! All ${totalServices} services are unhealthy (${duration}s)`,
+        'error'
+      );
+    } else {
+      showFeedback(
+        `ℹ️ Health check complete! ${healthyCount} healthy, ${unhealthyCount} unhealthy out of ${totalServices} services (${duration}s)`,
+        'warning'
+      );
+    }
   };
 
   const loadServices = async () => {
