@@ -15,6 +15,12 @@ router.register(r'result-files', views.ResultFileViewSet, basename='resultfile')
 router.register(r'user-access', views.UserServiceAccessViewSet, basename='userserviceaccess')
 router.register(r'dashboard', views.DashboardViewSet, basename='dashboard')
 
+# User Management endpoints
+router.register(r'roles', views.UserRoleViewSet, basename='userrole')
+router.register(r'users', views.UserViewSet, basename='user')
+router.register(r'profiles', views.UserProfileViewSet, basename='userprofile')
+router.register(r'audit-logs', views.AuditLogViewSet, basename='auditlog')
+
 # API URL patterns (for /api/ prefix)
 api_patterns = [
     path('', include(router.urls)),
@@ -24,6 +30,13 @@ api_patterns = [
     path('auth/login/', views.LoginView.as_view(), name='api_login'),
     path('auth/logout/', views.LogoutView.as_view(), name='api_logout'),
     path('auth/user/', views.UserInfoView.as_view(), name='api_user'),
+    # Service-specific user management
+    path('services/<int:service_pk>/permissions/', views.ServicePermissionViewSet.as_view({'get': 'list', 'post': 'create'}), name='service-permissions-list'),
+    path('services/<int:service_pk>/permissions/<int:pk>/', views.ServicePermissionViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'}), name='service-permissions-detail'),
+    path('services/<int:service_pk>/groups/', views.ServiceUserGroupViewSet.as_view({'get': 'list', 'post': 'create'}), name='service-groups-list'),
+    path('services/<int:service_pk>/groups/<int:pk>/', views.ServiceUserGroupViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'}), name='service-groups-detail'),
+    path('services/<int:service_pk>/groups/<int:pk>/add_user/', views.ServiceUserGroupViewSet.as_view({'post': 'add_user'}), name='service-groups-add-user'),
+    path('services/<int:service_pk>/groups/<int:pk>/remove_user/', views.ServiceUserGroupViewSet.as_view({'post': 'remove_user'}), name='service-groups-remove-user'),
 ]
 
 # Frontend URL patterns (for root / prefix)

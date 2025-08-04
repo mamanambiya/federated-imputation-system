@@ -188,7 +188,7 @@ class ServiceUserGroup(models.Model):
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True)
     service = models.ForeignKey('ImputationService', on_delete=models.CASCADE, related_name='user_groups')
-    users = models.ManyToManyField(User, through='ServiceUserGroupMembership', related_name='service_groups')
+    users = models.ManyToManyField(User, through='ServiceUserGroupMembership', through_fields=('group', 'user'), related_name='service_groups')
     permissions = models.ManyToManyField(ServicePermission, blank=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_groups')
     is_active = models.BooleanField(default=True)
