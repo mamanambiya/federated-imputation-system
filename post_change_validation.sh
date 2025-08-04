@@ -52,7 +52,7 @@ test_auth_endpoint() {
     # Login and get session (only get HTTP status code)
     login_response=$(curl -c /tmp/test_session.txt -s -o /dev/null -X POST \
         -H "Content-Type: application/json" \
-        -d '{"username":"admin","password":"admin_password"}' \
+        -d '{"username":"test_user","password":"test_password"}' \
         -w "%{http_code}" \
         "http://localhost:8000/api/auth/login/")
     
@@ -143,11 +143,11 @@ for endpoint_info in "${endpoints[@]}"; do
     fi
 done
 
-# Authenticated endpoints
+# Authenticated endpoints (using test_user credentials - researcher role)
 auth_endpoints=(
     "/api/profiles/|200|User Profiles API"
-    "/api/roles/|200|User Roles API"
-    "/api/audit-logs/|200|Audit Logs API"
+    "/api/roles/|403|User Roles API (restricted)"
+    "/api/audit-logs/|403|Audit Logs API (restricted)"
 )
 
 for endpoint_info in "${auth_endpoints[@]}"; do
@@ -229,7 +229,7 @@ echo "🔍 Testing UserManagement API structure after recent changes..."
 
 api_structure_test=$(curl -c /tmp/test_session.txt -s -X POST \
     -H "Content-Type: application/json" \
-    -d '{"username":"admin","password":"admin_password"}' \
+    -d '{"username":"test_user","password":"test_password"}' \
     "http://localhost:8000/api/auth/login/" > /dev/null 2>&1 && \
 curl -b /tmp/test_session.txt -s "http://localhost:8000/api/profiles/" | python3 -c "
 import json, sys

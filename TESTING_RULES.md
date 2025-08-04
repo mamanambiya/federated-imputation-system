@@ -59,6 +59,18 @@
 ```bash
 sudo docker-compose ps && curl -s http://localhost:8000/api/services/ > /dev/null && echo "✅ Quick check passed"
 ```
+
+---
+
+## 🔐 **Demo Credentials**
+
+**For testing and validation, use these demo credentials:**
+
+- **Username**: `test_user`  
+- **Password**: `test_password`
+- **Role**: Researcher (limited permissions)
+- **Access**: Services, Reference Panels, User Profiles
+- **Restrictions**: Cannot access Roles or Audit Logs (expected behavior)
 - **Purpose**: Rapid verification system is responding
 - **Runtime**: ~10 seconds
 
@@ -144,11 +156,21 @@ sudo docker-compose logs --tail=50 frontend
 ```
 ## Change: UserManagement API Structure Fix
 - **Modified**: UserProfileSerializer to include user field
-- **Tests Run**: ./post_change_validation.sh
+- **Tests Run**: ./post_change_validation.sh (using test_user credentials)
 - **Results**: 14/14 tests passed ✅
 - **Issues**: None
 - **Verification**: User Management page loads without runtime errors
 ```
+
+### **Admin vs Demo Credentials**
+
+**Demo Credentials (for testing):**
+- `test_user` / `test_password` - Researcher role with limited permissions
+- Use for validation scripts and general testing
+
+**Admin Credentials (for administration):**
+- `admin` / `admin_password` - Full system access
+- Use only for admin-specific testing or system management
 
 ---
 
@@ -170,7 +192,7 @@ curl -s http://localhost:8000/api/services/
 
 # Test authentication
 curl -c session.txt -X POST -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin_password"}' \
+  -d '{"username":"test_user","password":"test_password"}' \
   http://localhost:8000/api/auth/login/
 ```
 
