@@ -77,10 +77,10 @@ const Login: React.FC = () => {
               }} 
             />
           </Box>
-          <Typography component="h1" variant="h4" gutterBottom>
+          <Typography component="h1" variant="h4" gutterBottom sx={{ textAlign: 'center' }}>
             Federated Genomic Imputation Platform
           </Typography>
-          <Typography variant="h6" color="text.secondary" gutterBottom>
+          <Typography variant="h6" color="text.secondary" gutterBottom sx={{ textAlign: 'center' }}>
             Sign in to your account
           </Typography>
 
