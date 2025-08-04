@@ -1,9 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import axios from 'axios';
-
-// Configure axios defaults for authentication
-axios.defaults.withCredentials = true;
-axios.defaults.headers.common['Content-Type'] = 'application/json';
+import axios, { AxiosInstance } from 'axios';
 
 interface User {
   id: number;
@@ -29,18 +25,39 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const isAuthenticated = user !== null;
 
+  // Create dedicated axios instance for authentication (same config as ApiContext)
+  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  const authAxios = axios.create({
+    baseURL: `${API_BASE_URL}/api`,
+    withCredentials: true,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  // Add request interceptor for CSRF tokens (same as ApiContext)
+  authAxios.interceptors.request.use(
+    (config) => {
+      const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.getAttribute('content');
+      if (csrfToken) {
+        config.headers['X-CSRFToken'] = csrfToken;
+      }
+      return config;
+    },
+    (error) => {
+      return Promise.reject(error);
+    }
+  );
+
   // Check if user is logged in on app load
   useEffect(() => {
     checkAuthStatus();
   }, []);
 
-  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-
   const checkAuthStatus = async (retryCount = 0) => {
     try {
       console.log('Checking authentication status...');
-      const response = await axios.get(`${API_BASE_URL}/api/auth/user/`, {
-        withCredentials: true,
+      const response = await authAxios.get('/auth/user/', {
         timeout: 10000, // 10 second timeout
       });
       console.log('Auth check successful:', response.data);
@@ -67,21 +84,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = async (username: string, password: string): Promise<void> => {
     try {
       console.log('Attempting login for:', username);
-      const response = await axios.post(
-        `${API_BASE_URL}/api/auth/login/`,
+      const response = await authAxios.post('/auth/login/', 
         { username, password },
         { 
-          withCredentials: true,
           timeout: 15000, // 15 second timeout for login
-          headers: {
-            'Content-Type': 'application/json',
-          }
         }
       );
       console.log('Login response:', response.data);
       setUser(response.data.user);
       
-      // Verify authentication by checking user info
+      // Verify authentication by checking user info with the same axios instance
       try {
         await checkAuthStatus();
       } catch (verifyError) {
@@ -112,14 +124,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const logout = async (): Promise<void> => {
     try {
       console.log('Attempting logout...');
-      await axios.post(
-        `${API_BASE_URL}/api/auth/logout/`,
-        {},
-        { 
-          withCredentials: true,
-          timeout: 10000 // 10 second timeout
-        }
-      );
+      await authAxios.post('/auth/logout/', {}, { 
+        timeout: 10000 // 10 second timeout
+      });
       console.log('Logout successful');
     } catch (error) {
       console.warn('Logout request failed, but clearing local state:', error);
