@@ -1,6 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import axios from 'axios';
 
+// Configure axios defaults for authentication
+axios.defaults.withCredentials = true;
+axios.defaults.headers.common['Content-Type'] = 'application/json';
+
 interface User {
   id: number;
   username: string;
@@ -32,17 +36,31 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
-  const checkAuthStatus = async () => {
+  const checkAuthStatus = async (retryCount = 0) => {
     try {
+      console.log('Checking authentication status...');
       const response = await axios.get(`${API_BASE_URL}/api/auth/user/`, {
         withCredentials: true,
+        timeout: 10000, // 10 second timeout
       });
+      console.log('Auth check successful:', response.data);
       setUser(response.data.user);
-    } catch (error) {
-      // User is not authenticated
+    } catch (error: any) {
+      console.log('Auth check failed:', error.response?.status, error.message);
+      
+      // Retry once if it's a network error and we haven't retried yet
+      if (retryCount === 0 && (error.code === 'NETWORK_ERROR' || error.response?.status >= 500)) {
+        console.log('Retrying auth check...');
+        setTimeout(() => checkAuthStatus(1), 1000);
+        return;
+      }
+      
+      // User is not authenticated or other error
       setUser(null);
     } finally {
-      setLoading(false);
+      if (retryCount === 0) {
+        setLoading(false);
+      }
     }
   };
 
@@ -52,26 +70,59 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const response = await axios.post(
         `${API_BASE_URL}/api/auth/login/`,
         { username, password },
-        { withCredentials: true }
+        { 
+          withCredentials: true,
+          timeout: 15000, // 15 second timeout for login
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        }
       );
       console.log('Login response:', response.data);
       setUser(response.data.user);
+      
+      // Verify authentication by checking user info
+      try {
+        await checkAuthStatus();
+      } catch (verifyError) {
+        console.warn('Login succeeded but auth verification failed:', verifyError);
+        // Don't throw error here, the login was successful
+      }
     } catch (error: any) {
       console.error('Login error:', error);
       console.error('Login error response:', error.response?.data);
       console.error('Login error status:', error.response?.status);
-      throw new Error(error.response?.data?.error || error.message || 'Login failed');
+      
+      let errorMessage = 'Login failed. Please try again.';
+      
+      if (error.response?.status === 401) {
+        errorMessage = 'Invalid username or password.';
+      } else if (error.response?.status >= 500) {
+        errorMessage = 'Server error. Please try again in a moment.';
+      } else if (error.code === 'NETWORK_ERROR' || error.message.includes('Network Error')) {
+        errorMessage = 'Network connection error. Please check your internet connection.';
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      }
+      
+      throw new Error(errorMessage);
     }
   };
 
   const logout = async (): Promise<void> => {
     try {
+      console.log('Attempting logout...');
       await axios.post(
         `${API_BASE_URL}/api/auth/logout/`,
         {},
-        { withCredentials: true }
+        { 
+          withCredentials: true,
+          timeout: 10000 // 10 second timeout
+        }
       );
+      console.log('Logout successful');
     } catch (error) {
+      console.warn('Logout request failed, but clearing local state:', error);
       // Even if logout fails on server, clear local state
     } finally {
       setUser(null);

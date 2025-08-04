@@ -143,6 +143,28 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_CREDENTIALS = True
 
+# Additional CORS settings for better frontend compatibility
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
 # CSRF settings
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
@@ -150,6 +172,11 @@ CSRF_TRUSTED_ORIGINS = [
     "http://192.168.101.147:3000",
     "http://154.114.10.123:3000",  # Server IP
 ]
+
+# Additional CSRF settings
+CSRF_COOKIE_SECURE = False  # Set to True with HTTPS in production
+CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript access to CSRF token
+CSRF_COOKIE_SAMESITE = 'Lax'
 
 # Celery Configuration
 CELERY_BROKER_URL = config('REDIS_URL', default='redis://localhost:6379/0')
@@ -181,6 +208,8 @@ SESSION_COOKIE_AGE = 60 * 60 * 24 * 7  # 1 week
 SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_PATH = '/'
+SESSION_COOKIE_DOMAIN = None  # Allow cookies for any domain (development)
 SESSION_SAVE_EVERY_REQUEST = False  # Only save when session is modified
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 
