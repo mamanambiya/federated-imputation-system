@@ -33,7 +33,21 @@ const Footer: React.FC = () => {
           {/* Brand Section */}
           <Grid item xs={12} md={6}>
             <Box sx={{ mb: 3 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <Box 
+                component="a" 
+                href="/"
+                sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  mb: 2,
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                  '&:hover': {
+                    opacity: 0.8
+                  }
+                }}
+              >
                 <img 
                   src="/afrigen-d-logo.png" 
                   alt="AfriGen-D" 

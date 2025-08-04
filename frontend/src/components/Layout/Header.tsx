@@ -76,26 +76,40 @@ const Header: React.FC<HeaderProps> = ({
 
         {/* Center - Logo and Title */}
         <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
-          <img 
-            src="/afrigen-d-logo.png" 
-            alt="AfriGen-D" 
-            style={{ 
-              height: 40, 
-              marginRight: 12,
-              filter: logoFilter
-            }} 
-          />
-          <Typography 
-            variant="h6" 
-            component="div" 
+          <Box 
+            component="a" 
+            href="/"
             sx={{ 
-              fontWeight: 'bold', 
-              color: titleColor,
-              flexGrow: isAuthenticated ? 1 : 0
+              display: 'flex', 
+              alignItems: 'center', 
+              textDecoration: 'none',
+              cursor: 'pointer',
+              '&:hover': {
+                opacity: 0.8
+              }
             }}
           >
-            Federated Genomic Imputation Platform
-          </Typography>
+            <img 
+              src="/afrigen-d-logo.png" 
+              alt="AfriGen-D" 
+              style={{ 
+                height: 40, 
+                marginRight: 12,
+                filter: logoFilter
+              }} 
+            />
+            <Typography 
+              variant="h6" 
+              component="div" 
+              sx={{ 
+                fontWeight: 'bold', 
+                color: titleColor,
+                flexGrow: isAuthenticated ? 1 : 0
+              }}
+            >
+              Federated Genomic Imputation Platform
+            </Typography>
+          </Box>
         </Box>
 
         {/* Right Side - Navigation or User Menu */}
