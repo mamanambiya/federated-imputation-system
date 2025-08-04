@@ -13,19 +13,25 @@ from django.http import HttpResponse, Http404
 from django.db.models import Q
 from django.views.generic import TemplateView
 from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.models import User
+from django.contrib.auth.models import User, Group, Permission
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
+from django.utils import timezone
 from .models import (
     ImputationService, ReferencePanel, ImputationJob,
-    JobStatusUpdate, ResultFile, UserServiceAccess
+    JobStatusUpdate, ResultFile, UserServiceAccess, UserRole, UserProfile,
+    ServicePermission, ServiceUserGroup, ServiceUserGroupMembership, AuditLog
 )
 from .serializers import (
     ImputationServiceSerializer, ReferencePanelSerializer,
     ImputationJobListSerializer, ImputationJobDetailSerializer,
     ImputationJobCreateSerializer, JobStatusUpdateSerializer,
     ResultFileSerializer, UserServiceAccessSerializer,
-    ServiceSyncSerializer, JobActionSerializer
+    ServiceSyncSerializer, JobActionSerializer,
+    UserRoleSerializer, UserProfileSerializer, UserSerializer,
+    UserCreateSerializer, UserUpdateSerializer, ServicePermissionSerializer,
+    ServiceUserGroupSerializer, ServiceUserGroupCreateSerializer,
+    AuditLogSerializer
 )
 from .tasks import (
     submit_imputation_job, cancel_imputation_job,
@@ -35,6 +41,22 @@ from .tasks import (
 logger = logging.getLogger(__name__)
 
 
+def log_audit_event(user, action, resource_type=None, resource_id=None, details=None, request=None):
+    """Helper function to log audit events."""
+    try:
+        AuditLog.objects.create(
+            user=user,
+            action=action,
+            resource_type=resource_type,
+            resource_id=str(resource_id) if resource_id else '',
+            details=details or {},
+            ip_address=request.META.get('REMOTE_ADDR') if request else None,
+            user_agent=request.META.get('HTTP_USER_AGENT') if request else None
+        )
+    except Exception as e:
+        logger.error(f"Failed to log audit event: {e}")
+
+
 class CsrfExemptSessionAuthentication(SessionAuthentication):
     """
     SessionAuthentication that bypasses CSRF checks.
@@ -42,6 +64,42 @@ class CsrfExemptSessionAuthentication(SessionAuthentication):
     """
     def enforce_csrf(self, request):
         return  # Skip CSRF check
+
+
+class IsAdminUser(permissions.BasePermission):
+    """Custom permission to allow access only to admin users."""
+    
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:
+            return False
+        return request.user.profile.is_admin() if hasattr(request.user, 'profile') else request.user.is_superuser
+
+
+class IsServiceAdmin(permissions.BasePermission):
+    """Custom permission to allow access only to service administrators."""
+    
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:
+            return False
+        return request.user.profile.is_service_admin() if hasattr(request.user, 'profile') else False
+
+
+class CanManageUsers(permissions.BasePermission):
+    """Custom permission to allow access only to users who can manage other users."""
+    
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:
+            return False
+        return request.user.profile.can_manage_users() if hasattr(request.user, 'profile') else request.user.is_superuser
+
+
+class CanViewAllJobs(permissions.BasePermission):
+    """Custom permission to allow viewing all jobs."""
+    
+    def has_permission(self, request, view):
+        if not request.user.is_authenticated:
+            return False
+        return request.user.profile.can_view_all_jobs() if hasattr(request.user, 'profile') else request.user.is_superuser
 
 
 class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
@@ -283,8 +341,13 @@ class ImputationJobViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     
     def get_queryset(self):
-        """Get jobs for the current user."""
-        queryset = ImputationJob.objects.filter(user=self.request.user).select_related(
+        """Get jobs based on user permissions."""
+        if hasattr(self.request.user, 'profile') and self.request.user.profile.can_view_all_jobs():
+            queryset = ImputationJob.objects.all()
+        else:
+            queryset = ImputationJob.objects.filter(user=self.request.user)
+        
+        queryset = queryset.select_related(
             'user', 'service', 'reference_panel'
         ).prefetch_related('status_updates', 'files')
         
@@ -661,3 +724,425 @@ class UserInfoView(APIView):
                 'last_name': user.last_name,
             }
         }) 
+
+
+class UserRoleViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing user roles."""
+    
+    authentication_classes = [CsrfExemptSessionAuthentication]
+    serializer_class = UserRoleSerializer
+    permission_classes = [IsAdminUser]
+    
+    def get_queryset(self):
+        """Get all active roles."""
+        return UserRole.objects.filter(is_active=True)
+    
+    def perform_create(self, serializer):
+        """Create role and log audit event."""
+        role = serializer.save()
+        log_audit_event(
+            self.request.user,
+            'create_role',
+            'UserRole',
+            role.id,
+            {'role_name': role.name},
+            self.request
+        )
+    
+    def perform_update(self, serializer):
+        """Update role and log audit event."""
+        role = serializer.save()
+        log_audit_event(
+            self.request.user,
+            'update_role',
+            'UserRole',
+            role.id,
+            {'role_name': role.name},
+            self.request
+        )
+    
+    def perform_destroy(self, instance):
+        """Delete role and log audit event."""
+        role_name = instance.name
+        instance.delete()
+        log_audit_event(
+            self.request.user,
+            'delete_role',
+            'UserRole',
+            None,
+            {'role_name': role_name},
+            self.request
+        )
+
+
+class UserViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing users."""
+    
+    authentication_classes = [CsrfExemptSessionAuthentication]
+    permission_classes = [CanManageUsers]
+    
+    def get_queryset(self):
+        """Get users based on permissions."""
+        if self.request.user.profile.can_manage_users():
+            return User.objects.all()
+        return User.objects.filter(id=self.request.user.id)
+    
+    def get_serializer_class(self):
+        """Return appropriate serializer based on action."""
+        if self.action == 'create':
+            return UserCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return UserUpdateSerializer
+        return UserSerializer
+    
+    def perform_create(self, serializer):
+        """Create user and log audit event."""
+        user = serializer.save()
+        log_audit_event(
+            self.request.user,
+            'create_user',
+            'User',
+            user.id,
+            {'username': user.username, 'email': user.email},
+            self.request
+        )
+    
+    def perform_update(self, serializer):
+        """Update user and log audit event."""
+        user = serializer.save()
+        log_audit_event(
+            self.request.user,
+            'update_user',
+            'User',
+            user.id,
+            {'username': user.username},
+            self.request
+        )
+    
+    def perform_destroy(self, instance):
+        """Delete user and log audit event."""
+        username = instance.username
+        instance.delete()
+        log_audit_event(
+            self.request.user,
+            'delete_user',
+            'User',
+            None,
+            {'username': username},
+            self.request
+        )
+    
+    @action(detail=True, methods=['post'])
+    def reset_password(self, request, pk=None):
+        """Reset user password."""
+        user = self.get_object()
+        new_password = request.data.get('new_password')
+        
+        if not new_password:
+            return Response(
+                {'error': 'New password is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user.set_password(new_password)
+        user.save()
+        
+        log_audit_event(
+            request.user,
+            'reset_password',
+            'User',
+            user.id,
+            {'username': user.username},
+            request
+        )
+        
+        return Response({'message': 'Password reset successfully'})
+    
+    @action(detail=True, methods=['post'])
+    def toggle_active(self, request, pk=None):
+        """Toggle user active status."""
+        user = self.get_object()
+        user.is_active = not user.is_active
+        user.save()
+        
+        log_audit_event(
+            request.user,
+            'toggle_user_active',
+            'User',
+            user.id,
+            {'username': user.username, 'is_active': user.is_active},
+            request
+        )
+        
+        return Response({
+            'message': f'User {"activated" if user.is_active else "deactivated"} successfully',
+            'is_active': user.is_active
+        })
+
+
+class UserProfileViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing user profiles."""
+    
+    authentication_classes = [CsrfExemptSessionAuthentication]
+    serializer_class = UserProfileSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        """Get profiles based on permissions."""
+        if self.request.user.profile.can_manage_users():
+            return UserProfile.objects.all()
+        return UserProfile.objects.filter(user=self.request.user)
+    
+    def perform_update(self, serializer):
+        """Update profile and log audit event."""
+        profile = serializer.save()
+        log_audit_event(
+            self.request.user,
+            'update_profile',
+            'UserProfile',
+            profile.id,
+            {'username': profile.user.username},
+            self.request
+        )
+    
+    @action(detail=True, methods=['post'])
+    def reset_quota(self, request, pk=None):
+        """Reset user quota usage."""
+        profile = self.get_object()
+        profile.reset_monthly_usage()
+        
+        log_audit_event(
+            request.user,
+            'reset_quota',
+            'UserProfile',
+            profile.id,
+            {'username': profile.user.username},
+            request
+        )
+        
+        return Response({'message': 'Quota reset successfully'})
+    
+    @action(detail=True, methods=['post'])
+    def verify_user(self, request, pk=None):
+        """Verify user account."""
+        profile = self.get_object()
+        profile.is_verified = True
+        profile.verification_date = timezone.now()
+        profile.save()
+        
+        log_audit_event(
+            request.user,
+            'verify_user',
+            'UserProfile',
+            profile.id,
+            {'username': profile.user.username},
+            request
+        )
+        
+        return Response({'message': 'User verified successfully'})
+
+
+class ServicePermissionViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing service permissions."""
+    
+    authentication_classes = [CsrfExemptSessionAuthentication]
+    serializer_class = ServicePermissionSerializer
+    permission_classes = [IsServiceAdmin]
+    
+    def get_queryset(self):
+        """Get permissions for the current service."""
+        service_id = self.kwargs.get('service_pk')
+        return ServicePermission.objects.filter(service_id=service_id)
+    
+    def get_serializer_context(self):
+        """Add service to serializer context."""
+        context = super().get_serializer_context()
+        context['service'] = get_object_or_404(ImputationService, pk=self.kwargs.get('service_pk'))
+        return context
+    
+    def perform_create(self, serializer):
+        """Create permission and log audit event."""
+        permission = serializer.save()
+        log_audit_event(
+            self.request.user,
+            'grant_permission',
+            'ServicePermission',
+            permission.id,
+            {
+                'service': permission.service.name,
+                'user': permission.user.username,
+                'permission': permission.permission
+            },
+            self.request
+        )
+    
+    def perform_destroy(self, instance):
+        """Delete permission and log audit event."""
+        service_name = instance.service.name
+        username = instance.user.username
+        perm_name = instance.permission
+        instance.delete()
+        
+        log_audit_event(
+            self.request.user,
+            'revoke_permission',
+            'ServicePermission',
+            None,
+            {
+                'service': service_name,
+                'user': username,
+                'permission': perm_name
+            },
+            self.request
+        )
+
+
+class ServiceUserGroupViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing service user groups."""
+    
+    authentication_classes = [CsrfExemptSessionAuthentication]
+    permission_classes = [IsServiceAdmin]
+    
+    def get_queryset(self):
+        """Get groups for the current service."""
+        service_id = self.kwargs.get('service_pk')
+        return ServiceUserGroup.objects.filter(service_id=service_id)
+    
+    def get_serializer_class(self):
+        """Return appropriate serializer based on action."""
+        if self.action == 'create':
+            return ServiceUserGroupCreateSerializer
+        return ServiceUserGroupSerializer
+    
+    def get_serializer_context(self):
+        """Add service to serializer context."""
+        context = super().get_serializer_context()
+        context['service'] = get_object_or_404(ImputationService, pk=self.kwargs.get('service_pk'))
+        return context
+    
+    def perform_create(self, serializer):
+        """Create group and log audit event."""
+        group = serializer.save()
+        log_audit_event(
+            self.request.user,
+            'create_group',
+            'ServiceUserGroup',
+            group.id,
+            {
+                'service': group.service.name,
+                'group_name': group.name
+            },
+            self.request
+        )
+    
+    def perform_destroy(self, instance):
+        """Delete group and log audit event."""
+        service_name = instance.service.name
+        group_name = instance.name
+        instance.delete()
+        
+        log_audit_event(
+            self.request.user,
+            'delete_group',
+            'ServiceUserGroup',
+            None,
+            {
+                'service': service_name,
+                'group_name': group_name
+            },
+            self.request
+        )
+    
+    @action(detail=True, methods=['post'])
+    def add_user(self, request, pk=None, service_pk=None):
+        """Add user to group."""
+        group = self.get_object()
+        user_id = request.data.get('user_id')
+        permissions = request.data.get('permissions', [])
+        
+        try:
+            user = User.objects.get(id=user_id)
+            membership = group.add_user(user, permissions)
+            
+            log_audit_event(
+                request.user,
+                'add_user_to_group',
+                'ServiceUserGroup',
+                group.id,
+                {
+                    'service': group.service.name,
+                    'group_name': group.name,
+                    'username': user.username
+                },
+                request
+            )
+            
+            return Response({'message': f'User {user.username} added to group'})
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    @action(detail=True, methods=['post'])
+    def remove_user(self, request, pk=None, service_pk=None):
+        """Remove user from group."""
+        group = self.get_object()
+        user_id = request.data.get('user_id')
+        
+        try:
+            user = User.objects.get(id=user_id)
+            group.remove_user(user)
+            
+            log_audit_event(
+                request.user,
+                'remove_user_from_group',
+                'ServiceUserGroup',
+                group.id,
+                {
+                    'service': group.service.name,
+                    'group_name': group.name,
+                    'username': user.username
+                },
+                request
+            )
+            
+            return Response({'message': f'User {user.username} removed from group'})
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet for viewing audit logs."""
+    
+    authentication_classes = [CsrfExemptSessionAuthentication]
+    serializer_class = AuditLogSerializer
+    permission_classes = [IsAdminUser]
+    
+    def get_queryset(self):
+        """Get audit logs with optional filtering."""
+        queryset = AuditLog.objects.all()
+        
+        # Filter by user
+        user_id = self.request.query_params.get('user_id')
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        
+        # Filter by action
+        action = self.request.query_params.get('action')
+        if action:
+            queryset = queryset.filter(action=action)
+        
+        # Filter by date range
+        start_date = self.request.query_params.get('start_date')
+        if start_date:
+            queryset = queryset.filter(timestamp__gte=start_date)
+        
+        end_date = self.request.query_params.get('end_date')
+        if end_date:
+            queryset = queryset.filter(timestamp__lte=end_date)
+        
+        return queryset 

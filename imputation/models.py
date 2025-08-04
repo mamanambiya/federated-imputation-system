@@ -2,9 +2,281 @@
 Django models for the federated imputation system.
 """
 from django.db import models
-from django.contrib.auth.models import User
+from django.contrib.auth.models import User, Group, Permission
+from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 import uuid
+
+
+class UserRole(models.Model):
+    """Model representing user roles in the system."""
+    
+    ROLE_CHOICES = [
+        ('admin', 'Administrator'),
+        ('service_admin', 'Service Administrator'),
+        ('researcher', 'Researcher'),
+        ('service_user', 'Service User'),
+        ('viewer', 'Viewer'),
+    ]
+    
+    name = models.CharField(max_length=50, choices=ROLE_CHOICES, unique=True)
+    description = models.TextField(blank=True)
+    permissions = models.ManyToManyField(Permission, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['name']
+    
+    def __str__(self):
+        return self.get_name_display()
+    
+    def get_permissions_list(self):
+        """Get list of permission codenames for this role."""
+        return list(self.permissions.values_list('codename', flat=True))
+
+
+class UserProfile(models.Model):
+    """Extended user profile with role and additional information."""
+    
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    role = models.ForeignKey(UserRole, on_delete=models.SET_NULL, null=True, blank=True)
+    
+    # Personal information
+    organization = models.CharField(max_length=200, blank=True)
+    department = models.CharField(max_length=200, blank=True)
+    position = models.CharField(max_length=100, blank=True)
+    phone = models.CharField(max_length=20, blank=True)
+    
+    # Research information
+    research_area = models.CharField(max_length=200, blank=True)
+    institution = models.CharField(max_length=200, blank=True)
+    country = models.CharField(max_length=100, blank=True)
+    
+    # System preferences
+    preferred_language = models.CharField(max_length=10, default='en')
+    timezone = models.CharField(max_length=50, default='UTC')
+    email_notifications = models.BooleanField(default=True)
+    
+    # Account status
+    is_verified = models.BooleanField(default=False)
+    verification_date = models.DateTimeField(null=True, blank=True)
+    last_activity = models.DateTimeField(null=True, blank=True)
+    
+    # Quota and limits
+    monthly_job_limit = models.IntegerField(default=10)
+    monthly_jobs_used = models.IntegerField(default=0)
+    storage_limit_gb = models.DecimalField(max_digits=10, decimal_places=2, default=1.0)
+    storage_used_gb = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['user__username']
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.role.name if self.role else 'No Role'}"
+    
+    def has_permission(self, permission_codename):
+        """Check if user has a specific permission through their role."""
+        if not self.role or not self.role.is_active:
+            return False
+        return self.role.permissions.filter(codename=permission_codename).exists()
+    
+    def has_role(self, role_name):
+        """Check if user has a specific role."""
+        return self.role and self.role.name == role_name
+    
+    def is_admin(self):
+        """Check if user is an administrator."""
+        return self.has_role('admin')
+    
+    def is_service_admin(self):
+        """Check if user is a service administrator."""
+        return self.has_role('service_admin')
+    
+    def can_manage_services(self):
+        """Check if user can manage services."""
+        return (self.is_admin() or self.is_service_admin() or 
+                self.has_permission('add_imputationservice') or 
+                self.has_permission('change_imputationservice'))
+    
+    def can_view_all_jobs(self):
+        """Check if user can view all jobs (not just their own)."""
+        return (self.is_admin() or self.is_service_admin() or 
+                self.has_permission('view_all_jobs'))
+    
+    def can_manage_users(self):
+        """Check if user can manage other users."""
+        return (self.is_admin() or 
+                self.has_permission('add_user') or 
+                self.has_permission('change_user'))
+    
+    def update_activity(self):
+        """Update last activity timestamp."""
+        self.last_activity = timezone.now()
+        self.save(update_fields=['last_activity'])
+    
+    def reset_monthly_usage(self):
+        """Reset monthly usage counters."""
+        self.monthly_jobs_used = 0
+        self.storage_used_gb = 0.0
+        self.save(update_fields=['monthly_jobs_used', 'storage_used_gb'])
+    
+    def increment_job_usage(self):
+        """Increment job usage counter."""
+        self.monthly_jobs_used += 1
+        self.save(update_fields=['monthly_jobs_used'])
+    
+    def add_storage_usage(self, size_gb):
+        """Add to storage usage."""
+        self.storage_used_gb += size_gb
+        self.save(update_fields=['storage_used_gb'])
+    
+    def has_quota_available(self):
+        """Check if user has quota available for new jobs."""
+        return self.monthly_jobs_used < self.monthly_job_limit
+    
+    def get_quota_percentage(self):
+        """Get percentage of quota used."""
+        if self.monthly_job_limit == 0:
+            return 0
+        return (self.monthly_jobs_used / self.monthly_job_limit) * 100
+
+
+class ServicePermission(models.Model):
+    """Model for service-specific permissions."""
+    
+    PERMISSION_CHOICES = [
+        ('view', 'View Service'),
+        ('submit_jobs', 'Submit Jobs'),
+        ('view_jobs', 'View Jobs'),
+        ('manage_jobs', 'Manage Jobs'),
+        ('admin', 'Admin Service'),
+    ]
+    
+    service = models.ForeignKey('ImputationService', on_delete=models.CASCADE, related_name='permissions')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='service_permissions')
+    permission = models.CharField(max_length=20, choices=PERMISSION_CHOICES)
+    granted_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='granted_permissions')
+    granted_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    
+    class Meta:
+        unique_together = ['service', 'user', 'permission']
+        ordering = ['service', 'user', 'permission']
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.service.name} - {self.get_permission_display()}"
+    
+    def is_valid(self):
+        """Check if permission is still valid (not expired)."""
+        if not self.is_active:
+            return False
+        if self.expires_at and timezone.now() > self.expires_at:
+            return False
+        return True
+
+
+class ServiceUserGroup(models.Model):
+    """Model for managing groups of users with specific service access."""
+    
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    service = models.ForeignKey('ImputationService', on_delete=models.CASCADE, related_name='user_groups')
+    users = models.ManyToManyField(User, through='ServiceUserGroupMembership', related_name='service_groups')
+    permissions = models.ManyToManyField(ServicePermission, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_groups')
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['name', 'service']
+        ordering = ['service', 'name']
+    
+    def __str__(self):
+        return f"{self.service.name} - {self.name}"
+    
+    def add_user(self, user, permissions=None):
+        """Add a user to this group with optional permissions."""
+        membership, created = ServiceUserGroupMembership.objects.get_or_create(
+            group=self,
+            user=user
+        )
+        if permissions:
+            for perm in permissions:
+                ServicePermission.objects.get_or_create(
+                    service=self.service,
+                    user=user,
+                    permission=perm
+                )
+        return membership
+    
+    def remove_user(self, user):
+        """Remove a user from this group."""
+        ServiceUserGroupMembership.objects.filter(group=self, user=user).delete()
+        # Also remove service permissions for this user and service
+        ServicePermission.objects.filter(service=self.service, user=user).delete()
+
+
+class ServiceUserGroupMembership(models.Model):
+    """Through model for ServiceUserGroup and User relationship."""
+    
+    group = models.ForeignKey(ServiceUserGroup, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    joined_at = models.DateTimeField(auto_now_add=True)
+    added_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='added_memberships')
+    
+    class Meta:
+        unique_together = ['group', 'user']
+    
+    def __str__(self):
+        return f"{self.user.username} in {self.group.name}"
+
+
+class AuditLog(models.Model):
+    """Model for tracking user actions and system events."""
+    
+    ACTION_CHOICES = [
+        ('login', 'User Login'),
+        ('logout', 'User Logout'),
+        ('create_job', 'Create Job'),
+        ('update_job', 'Update Job'),
+        ('delete_job', 'Delete Job'),
+        ('create_user', 'Create User'),
+        ('update_user', 'Update User'),
+        ('delete_user', 'Delete User'),
+        ('grant_permission', 'Grant Permission'),
+        ('revoke_permission', 'Revoke Permission'),
+        ('service_access', 'Service Access'),
+        ('data_access', 'Data Access'),
+        ('system_config', 'System Configuration'),
+    ]
+    
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='audit_logs')
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    resource_type = models.CharField(max_length=50, blank=True)  # e.g., 'ImputationJob', 'User'
+    resource_id = models.CharField(max_length=100, blank=True)  # ID of the affected resource
+    details = models.JSONField(default=dict)  # Additional details about the action
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['user', 'action', 'timestamp']),
+            models.Index(fields=['action', 'timestamp']),
+            models.Index(fields=['resource_type', 'resource_id']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.username if self.user else 'System'} - {self.get_action_display()} - {self.timestamp}"
 
 
 class ImputationService(models.Model):

@@ -1,4 +1,314 @@
 """
+Serializers for the federated imputation system.
+"""
+from rest_framework import serializers
+from django.contrib.auth.models import User, Group, Permission
+from django.contrib.auth.password_validation import validate_password
+from .models import (
+    ImputationService, ReferencePanel, ImputationJob, JobStatusUpdate, 
+    ResultFile, UserServiceAccess, UserRole, UserProfile, ServicePermission,
+    ServiceUserGroup, ServiceUserGroupMembership, AuditLog
+)
+
+
+class PermissionSerializer(serializers.ModelSerializer):
+    """Serializer for Django permissions."""
+    
+    class Meta:
+        model = Permission
+        fields = ['id', 'name', 'codename', 'content_type']
+
+
+class UserRoleSerializer(serializers.ModelSerializer):
+    """Serializer for user roles."""
+    
+    permissions = PermissionSerializer(many=True, read_only=True)
+    permissions_list = serializers.ListField(
+        child=serializers.CharField(),
+        write_only=True,
+        required=False
+    )
+    
+    class Meta:
+        model = UserRole
+        fields = [
+            'id', 'name', 'description', 'permissions', 'permissions_list',
+            'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+    
+    def create(self, validated_data):
+        permissions_list = validated_data.pop('permissions_list', [])
+        role = UserRole.objects.create(**validated_data)
+        
+        if permissions_list:
+            permissions = Permission.objects.filter(codename__in=permissions_list)
+            role.permissions.set(permissions)
+        
+        return role
+    
+    def update(self, instance, validated_data):
+        permissions_list = validated_data.pop('permissions_list', None)
+        
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        if permissions_list is not None:
+            permissions = Permission.objects.filter(codename__in=permissions_list)
+            instance.permissions.set(permissions)
+        
+        return instance
+
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    """Serializer for user profiles."""
+    
+    role = UserRoleSerializer(read_only=True)
+    role_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
+    quota_percentage = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = UserProfile
+        fields = [
+            'id', 'role', 'role_id', 'organization', 'department', 'position',
+            'phone', 'research_area', 'institution', 'country',
+            'preferred_language', 'timezone', 'email_notifications',
+            'is_verified', 'verification_date', 'last_activity',
+            'monthly_job_limit', 'monthly_jobs_used', 'storage_limit_gb',
+            'storage_used_gb', 'quota_percentage', 'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'id', 'verification_date', 'last_activity', 'monthly_jobs_used',
+            'storage_used_gb', 'quota_percentage', 'created_at', 'updated_at'
+        ]
+    
+    def update(self, instance, validated_data):
+        role_id = validated_data.pop('role_id', None)
+        
+        if role_id is not None:
+            try:
+                role = UserRole.objects.get(id=role_id)
+                instance.role = role
+            except UserRole.DoesNotExist:
+                raise serializers.ValidationError("Invalid role ID")
+        
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        return instance
+
+
+class UserSerializer(serializers.ModelSerializer):
+    """Serializer for Django User model."""
+    
+    profile = UserProfileSerializer(read_only=True)
+    full_name = serializers.SerializerMethodField()
+    groups = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    
+    class Meta:
+        model = User
+        fields = [
+            'id', 'username', 'email', 'first_name', 'last_name', 'full_name',
+            'is_active', 'is_staff', 'is_superuser', 'date_joined', 'last_login',
+            'profile', 'groups'
+        ]
+        read_only_fields = ['id', 'date_joined', 'last_login']
+    
+    def get_full_name(self, obj):
+        return obj.get_full_name()
+
+
+class UserCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating new users."""
+    
+    password = serializers.CharField(write_only=True, validators=[validate_password])
+    password_confirm = serializers.CharField(write_only=True)
+    profile = UserProfileSerializer(required=False)
+    
+    class Meta:
+        model = User
+        fields = [
+            'username', 'email', 'first_name', 'last_name', 'password',
+            'password_confirm', 'profile'
+        ]
+    
+    def validate(self, attrs):
+        if attrs['password'] != attrs['password_confirm']:
+            raise serializers.ValidationError("Passwords don't match")
+        return attrs
+    
+    def create(self, validated_data):
+        password_confirm = validated_data.pop('password_confirm')
+        profile_data = validated_data.pop('profile', {})
+        
+        user = User.objects.create_user(**validated_data)
+        
+        # Create user profile
+        UserProfile.objects.create(user=user, **profile_data)
+        
+        return user
+
+
+class UserUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for updating users."""
+    
+    profile = UserProfileSerializer(partial=True)
+    
+    class Meta:
+        model = User
+        fields = [
+            'username', 'email', 'first_name', 'last_name', 'is_active',
+            'is_staff', 'profile'
+        ]
+    
+    def update(self, instance, validated_data):
+        profile_data = validated_data.pop('profile', {})
+        
+        # Update user fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        # Update profile
+        if profile_data:
+            profile_serializer = UserProfileSerializer(
+                instance.profile, data=profile_data, partial=True
+            )
+            if profile_serializer.is_valid():
+                profile_serializer.save()
+        
+        return instance
+
+
+class ServicePermissionSerializer(serializers.ModelSerializer):
+    """Serializer for service permissions."""
+    
+    user = UserSerializer(read_only=True)
+    user_id = serializers.IntegerField(write_only=True)
+    service = serializers.PrimaryKeyRelatedField(read_only=True)
+    granted_by = UserSerializer(read_only=True)
+    
+    class Meta:
+        model = ServicePermission
+        fields = [
+            'id', 'service', 'user', 'user_id', 'permission', 'granted_by',
+            'granted_at', 'expires_at', 'is_active'
+        ]
+        read_only_fields = ['id', 'service', 'granted_by', 'granted_at']
+    
+    def create(self, validated_data):
+        user_id = validated_data.pop('user_id')
+        service = self.context['service']
+        
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("Invalid user ID")
+        
+        # Check if permission already exists
+        if ServicePermission.objects.filter(
+            service=service, user=user, permission=validated_data['permission']
+        ).exists():
+            raise serializers.ValidationError("Permission already exists")
+        
+        return ServicePermission.objects.create(
+            service=service,
+            user=user,
+            granted_by=self.context['request'].user,
+            **validated_data
+        )
+
+
+class ServiceUserGroupMembershipSerializer(serializers.ModelSerializer):
+    """Serializer for service user group memberships."""
+    
+    user = UserSerializer(read_only=True)
+    user_id = serializers.IntegerField(write_only=True)
+    added_by = UserSerializer(read_only=True)
+    
+    class Meta:
+        model = ServiceUserGroupMembership
+        fields = ['id', 'group', 'user', 'user_id', 'joined_at', 'added_by']
+        read_only_fields = ['id', 'joined_at', 'added_by']
+
+
+class ServiceUserGroupSerializer(serializers.ModelSerializer):
+    """Serializer for service user groups."""
+    
+    users = UserSerializer(many=True, read_only=True)
+    memberships = ServiceUserGroupMembershipSerializer(many=True, read_only=True)
+    created_by = UserSerializer(read_only=True)
+    service = serializers.PrimaryKeyRelatedField(read_only=True)
+    
+    class Meta:
+        model = ServiceUserGroup
+        fields = [
+            'id', 'name', 'description', 'service', 'users', 'memberships',
+            'created_by', 'is_active', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
+
+
+class ServiceUserGroupCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating service user groups."""
+    
+    user_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        write_only=True,
+        required=False
+    )
+    permissions = serializers.ListField(
+        child=serializers.CharField(),
+        write_only=True,
+        required=False
+    )
+    
+    class Meta:
+        model = ServiceUserGroup
+        fields = [
+            'name', 'description', 'user_ids', 'permissions'
+        ]
+    
+    def create(self, validated_data):
+        user_ids = validated_data.pop('user_ids', [])
+        permissions = validated_data.pop('permissions', [])
+        service = self.context['service']
+        
+        group = ServiceUserGroup.objects.create(
+            service=service,
+            created_by=self.context['request'].user,
+            **validated_data
+        )
+        
+        # Add users to group
+        for user_id in user_ids:
+            try:
+                user = User.objects.get(id=user_id)
+                group.add_user(user, permissions)
+            except User.DoesNotExist:
+                continue
+        
+        return group
+
+
+class AuditLogSerializer(serializers.ModelSerializer):
+    """Serializer for audit logs."""
+    
+    user = UserSerializer(read_only=True)
+    action_display = serializers.CharField(source='get_action_display', read_only=True)
+    
+    class Meta:
+        model = AuditLog
+        fields = [
+            'id', 'user', 'action', 'action_display', 'resource_type',
+            'resource_id', 'details', 'ip_address', 'user_agent', 'timestamp'
+        ]
+        read_only_fields = ['id', 'timestamp']
+
+
+"""
 Django REST Framework serializers for the imputation app.
 """
 from rest_framework import serializers

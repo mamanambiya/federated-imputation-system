@@ -33,6 +33,17 @@ import {
   AlertProps,
   Fade,
   Backdrop,
+  Autocomplete,
+  Checkbox,
+  ListItemButton,
+  Collapse,
+  FormGroup,
+  FormControlLabel,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Tooltip,
+  Badge,
 } from '@mui/material';
 import {
   CloudUpload,
@@ -50,6 +61,14 @@ import {
   Info,
   CheckCircleOutline,
   WarningAmber,
+  ExpandMore,
+  Close,
+  SelectAll,
+  DeselectOutlined,
+  Tune,
+  Language,
+  Business,
+  Public,
 } from '@mui/icons-material';
 import { useApi, ImputationService, ReferencePanel } from '../contexts/ApiContext';
 
@@ -65,13 +84,18 @@ const Services: React.FC = () => {
   const [syncing, setSyncing] = useState<number | null>(null);
   const [serviceHealth, setServiceHealth] = useState<Record<number, 'healthy' | 'unhealthy' | 'checking' | 'demo'>>({});
   
-  // Filtering and search state
+  // Advanced filtering and search state
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterServiceType, setFilterServiceType] = useState('');
-  const [filterApiType, setFilterApiType] = useState('');
-  const [filterHealthStatus, setFilterHealthStatus] = useState('');
-  const [filterLocation, setFilterLocation] = useState('');
-  const [filterContinent, setFilterContinent] = useState('');
+  const [filterServiceType, setFilterServiceType] = useState<string[]>([]);
+  const [filterApiType, setFilterApiType] = useState<string[]>([]);
+  const [filterHealthStatus, setFilterHealthStatus] = useState<string[]>([]);
+  const [filterCountry, setFilterCountry] = useState<string[]>([]);
+  const [filterContinent, setFilterContinent] = useState<string[]>([]);
+  const [filterInstitution, setFilterInstitution] = useState<string[]>([]);
+  
+  // UI state for advanced filters
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [activeFilterCount, setActiveFilterCount] = useState(0);
 
   // Feedback and notification state
   const [snackbar, setSnackbar] = useState<{
@@ -89,49 +113,131 @@ const Services: React.FC = () => {
     loadServices();
   }, []);
 
-  // Filtering logic
+  // Helper function to extract location parts
+  const parseLocation = (location: string) => {
+    if (!location) return { institution: '', city: '', country: '' };
+    const parts = location.split(',').map(part => part.trim());
+    return {
+      institution: parts[0] || '',
+      city: parts[1] || '',
+      country: parts[2] || parts[1] || ''
+    };
+  };
+
+  // Enhanced filtering logic with multi-select support
   const filteredServices = services.filter(service => {
+    // Text search across multiple fields
     const matchesSearch = searchTerm === '' || 
       service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       service.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (service.location && service.location.toLowerCase().includes(searchTerm.toLowerCase()));
+      (service.location && service.location.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (service.continent && service.continent.toLowerCase().includes(searchTerm.toLowerCase()));
 
-    const matchesServiceType = filterServiceType === '' || service.service_type === filterServiceType;
-    const matchesApiType = filterApiType === '' || service.api_type === filterApiType;
-    const matchesLocation = filterLocation === '' || 
-      (service.location && service.location.toLowerCase().includes(filterLocation.toLowerCase()));
-    const matchesContinent = filterContinent === '' || 
-      (service.continent && service.continent.toLowerCase().includes(filterContinent.toLowerCase()));
+    // Multi-select service type filter
+    const matchesServiceType = filterServiceType.length === 0 || 
+      filterServiceType.includes(service.service_type);
 
+    // Multi-select API type filter
+    const matchesApiType = filterApiType.length === 0 || 
+      (service.api_type && filterApiType.includes(service.api_type));
+
+    // Multi-select health status filter
     let matchesHealthStatus = true;
-    if (filterHealthStatus !== '') {
+    if (filterHealthStatus.length > 0) {
       const healthStatus = serviceHealth[service.id];
-      if (filterHealthStatus === 'healthy') {
+      if (filterHealthStatus.includes('healthy')) {
         matchesHealthStatus = healthStatus === 'healthy';
-      } else if (filterHealthStatus === 'unhealthy') {
+      } else if (filterHealthStatus.includes('unhealthy')) {
         matchesHealthStatus = healthStatus === 'unhealthy';
-      } else if (filterHealthStatus === 'unknown') {
+      } else if (filterHealthStatus.includes('demo')) {
+        matchesHealthStatus = healthStatus === 'demo';
+      } else if (filterHealthStatus.includes('unknown')) {
         matchesHealthStatus = !healthStatus || healthStatus === 'checking';
       }
     }
 
-    return matchesSearch && matchesServiceType && matchesApiType && matchesLocation && matchesContinent && matchesHealthStatus;
+    // Hierarchical location filtering
+    const locationParts = parseLocation(service.location || '');
+    
+    const matchesCountry = filterCountry.length === 0 || 
+      filterCountry.some(country => 
+        locationParts.country.toLowerCase().includes(country.toLowerCase())
+      );
+
+    const matchesContinent = filterContinent.length === 0 || 
+      (service.continent && filterContinent.includes(service.continent));
+
+    const matchesInstitution = filterInstitution.length === 0 || 
+      filterInstitution.some(institution => 
+        locationParts.institution.toLowerCase().includes(institution.toLowerCase())
+      );
+
+    return matchesSearch && matchesServiceType && matchesApiType && 
+           matchesHealthStatus && matchesCountry && matchesContinent && matchesInstitution;
   });
 
-  // Get unique values for filter dropdowns
+  // Get unique values for filter dropdowns with hierarchical location data
   const uniqueServiceTypes = Array.from(new Set(services.map(s => s.service_type))).filter(Boolean);
   const uniqueApiTypes = Array.from(new Set(services.map(s => s.api_type))).filter(Boolean);
-  const uniqueLocations = Array.from(new Set(services.map(s => s.location))).filter(Boolean);
   const uniqueContinents = Array.from(new Set(services.map(s => s.continent))).filter(Boolean);
+  
+  // Extract hierarchical location data
+  const uniqueCountries = Array.from(new Set(
+    services
+      .map(s => parseLocation(s.location || '').country)
+      .filter(Boolean)
+  ));
+  
+  const uniqueInstitutions = Array.from(new Set(
+    services
+      .map(s => parseLocation(s.location || '').institution)
+      .filter(Boolean)
+  ));
+
+  // Health status options
+  const healthStatusOptions = [
+    { value: 'healthy', label: 'Healthy', color: '#4caf50' },
+    { value: 'unhealthy', label: 'Offline', color: '#f44336' },
+    { value: 'demo', label: 'Demo', color: '#ff9800' },
+    { value: 'unknown', label: 'Unknown', color: '#9e9e9e' }
+  ];
+
+  // Update active filter count
+  useEffect(() => {
+    const count = [
+      searchTerm,
+      ...filterServiceType,
+      ...filterApiType,
+      ...filterHealthStatus,
+      ...filterCountry,
+      ...filterContinent,
+      ...filterInstitution
+    ].filter(Boolean).length;
+    setActiveFilterCount(count);
+  }, [searchTerm, filterServiceType, filterApiType, filterHealthStatus, filterCountry, filterContinent, filterInstitution]);
+
+  // Multi-select helper functions
+  const handleMultiSelectAll = (currentValues: string[], allValues: string[], setter: (values: string[]) => void) => {
+    if (currentValues.length === allValues.length) {
+      setter([]);
+    } else {
+      setter(allValues);
+    }
+  };
+
+  const handleMultiSelectChange = (values: string[], setter: (values: string[]) => void) => {
+    setter(values);
+  };
 
   // Clear all filters
   const clearFilters = () => {
     setSearchTerm('');
-    setFilterServiceType('');
-    setFilterApiType('');
-    setFilterHealthStatus('');
-    setFilterLocation('');
-    setFilterContinent('');
+    setFilterServiceType([]);
+    setFilterApiType([]);
+    setFilterHealthStatus([]);
+    setFilterCountry([]);
+    setFilterContinent([]);
+    setFilterInstitution([]);
     showFeedback('All filters cleared', 'info');
   };
 
@@ -538,144 +644,427 @@ const Services: React.FC = () => {
         </Box>
       </Box>
 
-      {/* Search and Filter Controls */}
+      {/* Enhanced Search and Filter Controls */}
       <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
         <Box display="flex" alignItems="center" gap={1} mb={2}>
-          <FilterList color="primary" />
+          <Badge badgeContent={activeFilterCount} color="primary">
+            <FilterList color="primary" />
+          </Badge>
           <Typography variant="h6">Search & Filter</Typography>
           <Box sx={{ flexGrow: 1 }} />
+          <Tooltip title="Toggle Advanced Filters">
+            <IconButton onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}>
+              <Tune color={showAdvancedFilters ? "primary" : "action"} />
+            </IconButton>
+          </Tooltip>
           <Typography variant="body2" color="text.secondary">
             Showing {filteredServices.length} of {services.length} services
           </Typography>
         </Box>
 
         {/* Search Field */}
-        <Box mb={3}>
-          <TextField
-            fullWidth
-            placeholder="Search services by name, description, or location..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search color="action" />
-                </InputAdornment>
-              ),
-              endAdornment: searchTerm && (
-                <InputAdornment position="end">
-                  <IconButton onClick={() => setSearchTerm('')} size="small">
-                    <Clear />
-                  </IconButton>
-                </InputAdornment>
-              ),
-            }}
-            sx={{ mb: 2 }}
-          />
-        </Box>
+        <TextField
+          fullWidth
+          placeholder="Search services by name, description, location, or continent..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <Search color="action" />
+              </InputAdornment>
+            ),
+            endAdornment: searchTerm && (
+              <InputAdornment position="end">
+                <IconButton onClick={() => setSearchTerm('')} size="small">
+                  <Clear />
+                </IconButton>
+              </InputAdornment>
+            ),
+          }}
+          sx={{ mb: 3 }}
+        />
 
-        {/* Filter Controls */}
-        <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} sm={6} md={2}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Service Type</InputLabel>
-              <Select
-                value={filterServiceType}
-                label="Service Type"
-                onChange={(e) => setFilterServiceType(e.target.value)}
+        {/* Quick Filter Chips */}
+        {activeFilterCount > 0 && (
+          <Box mb={2}>
+            <Typography variant="subtitle2" gutterBottom>Active Filters:</Typography>
+            <Box display="flex" gap={1} flexWrap="wrap">
+              {searchTerm && (
+                <Chip
+                  label={`Search: "${searchTerm}"`}
+                  onDelete={() => setSearchTerm('')}
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                />
+              )}
+              {filterServiceType.map(type => (
+                <Chip
+                  key={type}
+                  label={`Type: ${type}`}
+                  onDelete={() => setFilterServiceType(filterServiceType.filter(t => t !== type))}
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                />
+              ))}
+              {filterApiType.map(type => (
+                <Chip
+                  key={type}
+                  label={`API: ${type}`}
+                  onDelete={() => setFilterApiType(filterApiType.filter(t => t !== type))}
+                  size="small"
+                  color="secondary"
+                  variant="outlined"
+                />
+              ))}
+              {filterHealthStatus.map(status => (
+                <Chip
+                  key={status}
+                  label={`Status: ${healthStatusOptions.find(o => o.value === status)?.label}`}
+                  onDelete={() => setFilterHealthStatus(filterHealthStatus.filter(s => s !== status))}
+                  size="small"
+                  color="info"
+                  variant="outlined"
+                />
+              ))}
+              {filterContinent.map(continent => (
+                <Chip
+                  key={continent}
+                  label={`Continent: ${continent}`}
+                  onDelete={() => setFilterContinent(filterContinent.filter(c => c !== continent))}
+                  size="small"
+                  color="success"
+                  variant="outlined"
+                />
+              ))}
+              {filterCountry.map(country => (
+                <Chip
+                  key={country}
+                  label={`Country: ${country}`}
+                  onDelete={() => setFilterCountry(filterCountry.filter(c => c !== country))}
+                  size="small"
+                  color="warning"
+                  variant="outlined"
+                />
+              ))}
+              {filterInstitution.map(institution => (
+                <Chip
+                  key={institution}
+                  label={`Institution: ${institution}`}
+                  onDelete={() => setFilterInstitution(filterInstitution.filter(i => i !== institution))}
+                  size="small"
+                  color="error"
+                  variant="outlined"
+                />
+              ))}
+              <Button
+                variant="text"
+                size="small"
+                startIcon={<Clear />}
+                onClick={clearFilters}
+                sx={{ ml: 1 }}
               >
-                <MenuItem value="">All Types</MenuItem>
-                {uniqueServiceTypes.map(type => (
-                  <MenuItem key={type} value={type}>
-                    {type.charAt(0).toUpperCase() + type.slice(1)}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
+                Clear All
+              </Button>
+            </Box>
+          </Box>
+        )}
 
-          <Grid item xs={12} sm={6} md={2}>
-            <FormControl fullWidth size="small">
-              <InputLabel>API Type</InputLabel>
-              <Select
-                value={filterApiType}
-                label="API Type"
-                onChange={(e) => setFilterApiType(e.target.value)}
-              >
-                <MenuItem value="">All APIs</MenuItem>
-                {uniqueApiTypes.map(type => (
-                  <MenuItem key={type} value={type}>
-                    {type?.toUpperCase() || 'Unknown'}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
+        {/* Advanced Filters */}
+        <Collapse in={showAdvancedFilters}>
+          <Divider sx={{ mb: 3 }} />
+          
+          <Grid container spacing={3}>
+            {/* Service Type Filter */}
+            <Grid item xs={12} md={6}>
+              <Accordion defaultExpanded>
+                <AccordionSummary expandIcon={<ExpandMore />}>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Business color="primary" />
+                    <Typography variant="subtitle1">Service Type</Typography>
+                    {filterServiceType.length > 0 && (
+                      <Badge badgeContent={filterServiceType.length} color="primary" />
+                    )}
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <FormControl fullWidth>
+                    <Autocomplete
+                      multiple
+                      options={uniqueServiceTypes}
+                      value={filterServiceType}
+                      onChange={(_, newValue) => handleMultiSelectChange(newValue, setFilterServiceType)}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          placeholder="Select service types..."
+                          InputProps={{
+                            ...params.InputProps,
+                            startAdornment: (
+                              <>
+                                <InputAdornment position="start">
+                                  <Business color="action" />
+                                </InputAdornment>
+                                {params.InputProps.startAdornment}
+                              </>
+                            ),
+                          }}
+                        />
+                      )}
+                      renderOption={(props, option, { selected }) => (
+                        <li {...props}>
+                          <Checkbox checked={selected} />
+                          <ListItemText primary={option.charAt(0).toUpperCase() + option.slice(1)} />
+                        </li>
+                      )}
+                    />
+                    <Box mt={1}>
+                      <Button
+                        size="small"
+                        startIcon={filterServiceType.length === uniqueServiceTypes.length ? <DeselectOutlined /> : <SelectAll />}
+                        onClick={() => handleMultiSelectAll(filterServiceType, uniqueServiceTypes, setFilterServiceType)}
+                      >
+                        {filterServiceType.length === uniqueServiceTypes.length ? 'Deselect All' : 'Select All'}
+                      </Button>
+                    </Box>
+                  </FormControl>
+                </AccordionDetails>
+              </Accordion>
+            </Grid>
 
-          <Grid item xs={12} sm={6} md={2}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Health Status</InputLabel>
-              <Select
-                value={filterHealthStatus}
-                label="Health Status"
-                onChange={(e) => setFilterHealthStatus(e.target.value)}
-              >
-                <MenuItem value="">All Status</MenuItem>
-                <MenuItem value="healthy">Healthy</MenuItem>
-                <MenuItem value="unhealthy">Unhealthy</MenuItem>
-                <MenuItem value="unknown">Unknown</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
+            {/* API Type Filter */}
+            <Grid item xs={12} md={6}>
+              <Accordion defaultExpanded>
+                <AccordionSummary expandIcon={<ExpandMore />}>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Language color="secondary" />
+                    <Typography variant="subtitle1">API Type</Typography>
+                    {filterApiType.length > 0 && (
+                      <Badge badgeContent={filterApiType.length} color="secondary" />
+                    )}
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <FormControl fullWidth>
+                    <Autocomplete
+                      multiple
+                      options={uniqueApiTypes}
+                      value={filterApiType}
+                      onChange={(_, newValue) => handleMultiSelectChange(newValue, setFilterApiType)}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          placeholder="Select API types..."
+                          InputProps={{
+                            ...params.InputProps,
+                            startAdornment: (
+                              <>
+                                <InputAdornment position="start">
+                                  <Language color="action" />
+                                </InputAdornment>
+                                {params.InputProps.startAdornment}
+                              </>
+                            ),
+                          }}
+                        />
+                      )}
+                      renderOption={(props, option, { selected }) => (
+                        <li {...props}>
+                          <Checkbox checked={selected} />
+                          <ListItemText primary={option?.toUpperCase() || 'Unknown'} />
+                        </li>
+                      )}
+                    />
+                    <Box mt={1}>
+                      <Button
+                        size="small"
+                        startIcon={filterApiType.length === uniqueApiTypes.length ? <DeselectOutlined /> : <SelectAll />}
+                        onClick={() => handleMultiSelectAll(filterApiType, uniqueApiTypes, setFilterApiType)}
+                      >
+                        {filterApiType.length === uniqueApiTypes.length ? 'Deselect All' : 'Select All'}
+                      </Button>
+                    </Box>
+                  </FormControl>
+                </AccordionDetails>
+              </Accordion>
+            </Grid>
 
-          <Grid item xs={12} sm={6} md={2}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Location</InputLabel>
-              <Select
-                value={filterLocation}
-                label="Location"
-                onChange={(e) => setFilterLocation(e.target.value)}
-              >
-                <MenuItem value="">All Locations</MenuItem>
-                {uniqueLocations.map(location => (
-                  <MenuItem key={location} value={location}>
-                    {location}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
+            {/* Health Status Filter */}
+            <Grid item xs={12} md={6}>
+              <Accordion>
+                <AccordionSummary expandIcon={<ExpandMore />}>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <CheckCircle color="success" />
+                    <Typography variant="subtitle1">Health Status</Typography>
+                    {filterHealthStatus.length > 0 && (
+                      <Badge badgeContent={filterHealthStatus.length} color="success" />
+                    )}
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <FormGroup>
+                    {healthStatusOptions.map(option => (
+                      <FormControlLabel
+                        key={option.value}
+                        control={
+                          <Checkbox
+                            checked={filterHealthStatus.includes(option.value)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFilterHealthStatus([...filterHealthStatus, option.value]);
+                              } else {
+                                setFilterHealthStatus(filterHealthStatus.filter(s => s !== option.value));
+                              }
+                            }}
+                          />
+                        }
+                        label={
+                          <Box display="flex" alignItems="center" gap={1}>
+                            <Circle sx={{ color: option.color, fontSize: 12 }} />
+                            {option.label}
+                          </Box>
+                        }
+                      />
+                    ))}
+                  </FormGroup>
+                  <Box mt={1}>
+                    <Button
+                      size="small"
+                      startIcon={filterHealthStatus.length === healthStatusOptions.length ? <DeselectOutlined /> : <SelectAll />}
+                      onClick={() => handleMultiSelectAll(
+                        filterHealthStatus, 
+                        healthStatusOptions.map(o => o.value), 
+                        setFilterHealthStatus
+                      )}
+                    >
+                      {filterHealthStatus.length === healthStatusOptions.length ? 'Deselect All' : 'Select All'}
+                    </Button>
+                  </Box>
+                </AccordionDetails>
+              </Accordion>
+            </Grid>
 
-          <Grid item xs={12} sm={6} md={2}>
-            <FormControl fullWidth size="small">
-              <InputLabel>Continent</InputLabel>
-              <Select
-                value={filterContinent}
-                label="Continent"
-                onChange={(e) => setFilterContinent(e.target.value)}
-              >
-                <MenuItem value="">All Continents</MenuItem>
-                {uniqueContinents.map(continent => (
-                  <MenuItem key={continent} value={continent}>
-                    {continent}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
+            {/* Location Filters */}
+            <Grid item xs={12} md={6}>
+              <Accordion>
+                <AccordionSummary expandIcon={<ExpandMore />}>
+                  <Box display="flex" alignItems="center" gap={1}>
+                    <Public color="info" />
+                    <Typography variant="subtitle1">Location</Typography>
+                    {(filterContinent.length + filterCountry.length + filterInstitution.length) > 0 && (
+                      <Badge badgeContent={filterContinent.length + filterCountry.length + filterInstitution.length} color="info" />
+                    )}
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" gutterBottom>Continent</Typography>
+                    <Autocomplete
+                      multiple
+                      options={uniqueContinents}
+                      value={filterContinent}
+                      onChange={(_, newValue) => handleMultiSelectChange(newValue, setFilterContinent)}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          placeholder="Select continents..."
+                          size="small"
+                          InputProps={{
+                            ...params.InputProps,
+                            startAdornment: (
+                              <>
+                                <InputAdornment position="start">
+                                  <Public color="action" />
+                                </InputAdornment>
+                                {params.InputProps.startAdornment}
+                              </>
+                            ),
+                          }}
+                        />
+                      )}
+                      renderOption={(props, option, { selected }) => (
+                        <li {...props}>
+                          <Checkbox checked={selected} />
+                          <ListItemText primary={option} />
+                        </li>
+                      )}
+                    />
+                  </Box>
 
-          <Grid item xs={12} sm={6} md={2}>
-            <Button
-              variant="outlined"
-              startIcon={<Clear />}
-              onClick={clearFilters}
-              disabled={!searchTerm && !filterServiceType && !filterApiType && !filterHealthStatus && !filterLocation && !filterContinent}
-              fullWidth
-            >
-              Clear Filters
-            </Button>
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" gutterBottom>Country</Typography>
+                    <Autocomplete
+                      multiple
+                      options={uniqueCountries}
+                      value={filterCountry}
+                      onChange={(_, newValue) => handleMultiSelectChange(newValue, setFilterCountry)}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          placeholder="Select countries..."
+                          size="small"
+                          InputProps={{
+                            ...params.InputProps,
+                            startAdornment: (
+                              <>
+                                <InputAdornment position="start">
+                                  <LocationOn color="action" />
+                                </InputAdornment>
+                                {params.InputProps.startAdornment}
+                              </>
+                            ),
+                          }}
+                        />
+                      )}
+                      renderOption={(props, option, { selected }) => (
+                        <li {...props}>
+                          <Checkbox checked={selected} />
+                          <ListItemText primary={option} />
+                        </li>
+                      )}
+                    />
+                  </Box>
+
+                  <Box>
+                    <Typography variant="subtitle2" gutterBottom>Institution</Typography>
+                    <Autocomplete
+                      multiple
+                      options={uniqueInstitutions}
+                      value={filterInstitution}
+                      onChange={(_, newValue) => handleMultiSelectChange(newValue, setFilterInstitution)}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          placeholder="Select institutions..."
+                          size="small"
+                          InputProps={{
+                            ...params.InputProps,
+                            startAdornment: (
+                              <>
+                                <InputAdornment position="start">
+                                  <Business color="action" />
+                                </InputAdornment>
+                                {params.InputProps.startAdornment}
+                              </>
+                            ),
+                          }}
+                        />
+                      )}
+                      renderOption={(props, option, { selected }) => (
+                        <li {...props}>
+                          <Checkbox checked={selected} />
+                          <ListItemText primary={option} />
+                        </li>
+                      )}
+                    />
+                  </Box>
+                </AccordionDetails>
+              </Accordion>
+            </Grid>
           </Grid>
-        </Grid>
+        </Collapse>
       </Paper>
 
       <Grid container spacing={3}>
