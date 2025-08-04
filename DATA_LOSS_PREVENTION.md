@@ -59,7 +59,7 @@ You were experiencing data loss with imputation services disappearing from the d
 ### If Services Are Missing:
 ```bash
 # Method 1: Restore from backup (RECOMMENDED)
-./restore-db.sh ./backups/federated_imputation_complete_with_inserts_20250804_131727.sql
+./restore-db.sh ./backups/federated_imputation_complete_5_services_20250804_132337.sql
 
 # Method 2: Recreate data
 sudo docker-compose exec web python manage.py create_initial_data
