@@ -24,6 +24,7 @@ import ServicesInfo from './pages/ServicesInfo';
 import GetStarted from './pages/GetStarted';
 import Documentation from './pages/Documentation';
 import Contact from './pages/Contact';
+import UserManagement from './pages/UserManagement';
 
 const theme = createTheme({
   palette: {
@@ -76,6 +77,7 @@ const AuthenticatedApp: React.FC = () => {
           <Route path="/results" element={<Results />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/user-management" element={<UserManagement />} />
           {/* Redirect authenticated users from landing page to dashboard */}
           <Route path="/landing" element={<Navigate to="/" replace />} />
         </Routes>

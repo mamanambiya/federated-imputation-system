@@ -17,6 +17,7 @@ import {
   Add,
   Storage,
   DownloadDone,
+  AdminPanelSettings,
 } from '@mui/icons-material';
 
 const drawerWidth = 240;
@@ -58,6 +59,12 @@ const navigationItems: NavigationItem[] = [
     text: 'Results',
     icon: <DownloadDone />,
     path: '/results',
+    divider: true,
+  },
+  {
+    text: 'User Management',
+    icon: <AdminPanelSettings />,
+    path: '/user-management',
   },
 ];
 

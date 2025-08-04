@@ -110,6 +110,7 @@ export interface DashboardStats {
 // API Context
 interface ApiContextType {
   api: AxiosInstance;
+  apiCall: (endpoint: string, options?: RequestInit) => Promise<any>;
   
   // Services
   getServices: () => Promise<ImputationService[]>;
@@ -168,6 +169,29 @@ const createApiInstance = (): AxiosInstance => {
 
 export const ApiProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const api = createApiInstance();
+
+  // Generic API call function
+  const apiCall = async (endpoint: string, options?: RequestInit): Promise<any> => {
+    const url = endpoint.startsWith('/api/') ? endpoint.substring(5) : endpoint;
+    const config = {
+      method: options?.method || 'GET',
+      ...options,
+    };
+
+    if (config.method === 'GET') {
+      const response = await api.get(url);
+      return response.data;
+    } else if (config.method === 'POST') {
+      const response = await api.post(url, options?.body ? JSON.parse(options.body as string) : undefined);
+      return response.data;
+    } else if (config.method === 'PATCH') {
+      const response = await api.patch(url, options?.body ? JSON.parse(options.body as string) : undefined);
+      return response.data;
+    } else if (config.method === 'DELETE') {
+      const response = await api.delete(url);
+      return response.data;
+    }
+  };
 
   // Services
   const getServices = async (): Promise<ImputationService[]> => {
@@ -277,6 +301,7 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const value: ApiContextType = {
     api,
+    apiCall,
     getServices,
     getService,
     syncReferencePanels,
