@@ -20,6 +20,14 @@ import {
   ListItemText,
   ListItemIcon,
   Divider,
+  TextField,
+  InputAdornment,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Paper,
+  IconButton,
 } from '@mui/material';
 import {
   CloudUpload,
@@ -31,6 +39,9 @@ import {
   Error,
   LocationOn,
   Circle,
+  Search,
+  FilterList,
+  Clear,
 } from '@mui/icons-material';
 import { useApi, ImputationService, ReferencePanel } from '../contexts/ApiContext';
 
@@ -45,10 +56,58 @@ const Services: React.FC = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [syncing, setSyncing] = useState<number | null>(null);
   const [serviceHealth, setServiceHealth] = useState<Record<number, 'healthy' | 'unhealthy' | 'checking'>>({});
+  
+  // Filtering and search state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterServiceType, setFilterServiceType] = useState('');
+  const [filterApiType, setFilterApiType] = useState('');
+  const [filterHealthStatus, setFilterHealthStatus] = useState('');
+  const [filterLocation, setFilterLocation] = useState('');
 
   useEffect(() => {
     loadServices();
   }, []);
+
+  // Filtering logic
+  const filteredServices = services.filter(service => {
+    const matchesSearch = searchTerm === '' || 
+      service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      service.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (service.location && service.location.toLowerCase().includes(searchTerm.toLowerCase()));
+
+    const matchesServiceType = filterServiceType === '' || service.service_type === filterServiceType;
+    const matchesApiType = filterApiType === '' || service.api_type === filterApiType;
+    const matchesLocation = filterLocation === '' || 
+      (service.location && service.location.toLowerCase().includes(filterLocation.toLowerCase()));
+
+    let matchesHealthStatus = true;
+    if (filterHealthStatus !== '') {
+      const healthStatus = serviceHealth[service.id];
+      if (filterHealthStatus === 'healthy') {
+        matchesHealthStatus = healthStatus === 'healthy';
+      } else if (filterHealthStatus === 'unhealthy') {
+        matchesHealthStatus = healthStatus === 'unhealthy';
+      } else if (filterHealthStatus === 'unknown') {
+        matchesHealthStatus = !healthStatus || healthStatus === 'checking';
+      }
+    }
+
+    return matchesSearch && matchesServiceType && matchesApiType && matchesLocation && matchesHealthStatus;
+  });
+
+  // Get unique values for filter dropdowns
+  const uniqueServiceTypes = Array.from(new Set(services.map(s => s.service_type))).filter(Boolean);
+  const uniqueApiTypes = Array.from(new Set(services.map(s => s.api_type))).filter(Boolean);
+  const uniqueLocations = Array.from(new Set(services.map(s => s.location))).filter(Boolean);
+
+  // Clear all filters
+  const clearFilters = () => {
+    setSearchTerm('');
+    setFilterServiceType('');
+    setFilterApiType('');
+    setFilterHealthStatus('');
+    setFilterLocation('');
+  };
 
   useEffect(() => {
     if (services.length > 0) {
@@ -340,8 +399,130 @@ const Services: React.FC = () => {
         </Box>
       </Box>
 
+      {/* Search and Filter Controls */}
+      <Paper elevation={2} sx={{ p: 3, mb: 3 }}>
+        <Box display="flex" alignItems="center" gap={1} mb={2}>
+          <FilterList color="primary" />
+          <Typography variant="h6">Search & Filter</Typography>
+          <Box sx={{ flexGrow: 1 }} />
+          <Typography variant="body2" color="text.secondary">
+            Showing {filteredServices.length} of {services.length} services
+          </Typography>
+        </Box>
+
+        {/* Search Field */}
+        <Box mb={3}>
+          <TextField
+            fullWidth
+            placeholder="Search services by name, description, or location..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search color="action" />
+                </InputAdornment>
+              ),
+              endAdornment: searchTerm && (
+                <InputAdornment position="end">
+                  <IconButton onClick={() => setSearchTerm('')} size="small">
+                    <Clear />
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+            sx={{ mb: 2 }}
+          />
+        </Box>
+
+        {/* Filter Controls */}
+        <Grid container spacing={2} alignItems="center">
+          <Grid item xs={12} sm={6} md={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Service Type</InputLabel>
+              <Select
+                value={filterServiceType}
+                label="Service Type"
+                onChange={(e) => setFilterServiceType(e.target.value)}
+              >
+                <MenuItem value="">All Types</MenuItem>
+                {uniqueServiceTypes.map(type => (
+                  <MenuItem key={type} value={type}>
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>API Type</InputLabel>
+              <Select
+                value={filterApiType}
+                label="API Type"
+                onChange={(e) => setFilterApiType(e.target.value)}
+              >
+                <MenuItem value="">All APIs</MenuItem>
+                {uniqueApiTypes.map(type => (
+                  <MenuItem key={type} value={type}>
+                    {type.toUpperCase()}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Health Status</InputLabel>
+              <Select
+                value={filterHealthStatus}
+                label="Health Status"
+                onChange={(e) => setFilterHealthStatus(e.target.value)}
+              >
+                <MenuItem value="">All Status</MenuItem>
+                <MenuItem value="healthy">Healthy</MenuItem>
+                <MenuItem value="unhealthy">Unhealthy</MenuItem>
+                <MenuItem value="unknown">Unknown</MenuItem>
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={3}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Location</InputLabel>
+              <Select
+                value={filterLocation}
+                label="Location"
+                onChange={(e) => setFilterLocation(e.target.value)}
+              >
+                <MenuItem value="">All Locations</MenuItem>
+                {uniqueLocations.map(location => (
+                  <MenuItem key={location} value={location}>
+                    {location}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={3}>
+            <Button
+              variant="outlined"
+              startIcon={<Clear />}
+              onClick={clearFilters}
+              disabled={!searchTerm && !filterServiceType && !filterApiType && !filterHealthStatus && !filterLocation}
+              fullWidth
+            >
+              Clear Filters
+            </Button>
+          </Grid>
+        </Grid>
+      </Paper>
+
       <Grid container spacing={3}>
-        {services.map((service) => (
+        {filteredServices.map((service) => (
           <Grid item xs={12} md={6} lg={4} key={service.id}>
             <Card 
               sx={{ 
