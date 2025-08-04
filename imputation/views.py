@@ -49,7 +49,7 @@ class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
     
     authentication_classes = [CsrfExemptSessionAuthentication]
     serializer_class = ImputationServiceSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
     
     def get_queryset(self):
         """Get active imputation services."""
@@ -237,7 +237,7 @@ class ReferencePanelViewSet(viewsets.ReadOnlyModelViewSet):
     
     authentication_classes = [CsrfExemptSessionAuthentication]
     serializer_class = ReferencePanelSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
     
     def get_queryset(self):
         """Get active reference panels."""
