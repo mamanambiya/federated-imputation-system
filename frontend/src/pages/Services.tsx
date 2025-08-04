@@ -176,31 +176,113 @@ const Services: React.FC = () => {
            matchesHealthStatus && matchesCountry && matchesContinent && matchesInstitution;
   });
 
-  // Get unique values for filter dropdowns with hierarchical location data
-  const uniqueServiceTypes = Array.from(new Set(services.map(s => s.service_type))).filter(Boolean);
-  const uniqueApiTypes = Array.from(new Set(services.map(s => s.api_type))).filter(Boolean);
-  const uniqueContinents = Array.from(new Set(services.map(s => s.continent))).filter(Boolean);
-  
-  // Extract hierarchical location data
-  const uniqueCountries = Array.from(new Set(
-    services
-      .map(s => parseLocation(s.location || '').country)
-      .filter(Boolean)
-  ));
-  
-  const uniqueInstitutions = Array.from(new Set(
-    services
-      .map(s => parseLocation(s.location || '').institution)
-      .filter(Boolean)
-  ));
+  // Helper function to get available options based on current filters
+  const getAvailableOptions = () => {
+    // Apply all filters except the one we're calculating options for
+    const getFilteredServicesForOption = (excludeFilter: string) => {
+      return services.filter(service => {
+        // Text search
+        const matchesSearch = searchTerm === '' || 
+          service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          service.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (service.location && service.location.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          (service.continent && service.continent.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  // Health status options
-  const healthStatusOptions = [
-    { value: 'healthy', label: 'Healthy', color: '#4caf50' },
-    { value: 'unhealthy', label: 'Offline', color: '#f44336' },
-    { value: 'demo', label: 'Demo', color: '#ff9800' },
-    { value: 'unknown', label: 'Unknown', color: '#9e9e9e' }
+        // Apply all filters except the excluded one
+        const matchesServiceType = excludeFilter === 'serviceType' || filterServiceType.length === 0 || 
+          filterServiceType.includes(service.service_type);
+
+        const matchesApiType = excludeFilter === 'apiType' || filterApiType.length === 0 || 
+          (service.api_type && filterApiType.includes(service.api_type));
+
+        let matchesHealthStatus = true;
+        if (excludeFilter !== 'healthStatus' && filterHealthStatus.length > 0) {
+          const healthStatus = serviceHealth[service.id];
+          matchesHealthStatus = filterHealthStatus.some(status => {
+            if (status === 'healthy') return healthStatus === 'healthy';
+            if (status === 'unhealthy') return healthStatus === 'unhealthy';
+            if (status === 'demo') return healthStatus === 'demo';
+            if (status === 'unknown') return !healthStatus || healthStatus === 'checking';
+            return false;
+          });
+        }
+
+        const locationParts = parseLocation(service.location || '');
+        
+        const matchesCountry = excludeFilter === 'country' || filterCountry.length === 0 || 
+          filterCountry.some(country => 
+            locationParts.country.toLowerCase().includes(country.toLowerCase())
+          );
+
+        const matchesContinent = excludeFilter === 'continent' || filterContinent.length === 0 || 
+          (service.continent && filterContinent.includes(service.continent));
+
+        const matchesInstitution = excludeFilter === 'institution' || filterInstitution.length === 0 || 
+          filterInstitution.some(institution => 
+            locationParts.institution.toLowerCase().includes(institution.toLowerCase())
+          );
+
+        return matchesSearch && matchesServiceType && matchesApiType && 
+               matchesHealthStatus && matchesCountry && matchesContinent && matchesInstitution;
+      });
+    };
+
+    return {
+      serviceTypes: Array.from(new Set(
+        getFilteredServicesForOption('serviceType').map(s => s.service_type).filter(Boolean)
+      )) as string[],
+      
+      apiTypes: Array.from(new Set(
+        getFilteredServicesForOption('apiType').map(s => s.api_type).filter(Boolean)
+      )) as string[],
+      
+      continents: Array.from(new Set(
+        getFilteredServicesForOption('continent').map(s => s.continent).filter(Boolean)
+      )) as string[],
+      
+      countries: Array.from(new Set(
+        getFilteredServicesForOption('country')
+          .map(s => parseLocation(s.location || '').country).filter(Boolean)
+      )) as string[],
+      
+      institutions: Array.from(new Set(
+        getFilteredServicesForOption('institution')
+          .map(s => parseLocation(s.location || '').institution).filter(Boolean)
+      )) as string[],
+      
+      healthStatuses: Array.from(new Set(
+        getFilteredServicesForOption('healthStatus').map(s => {
+          const healthStatus = serviceHealth[s.id];
+          if (healthStatus === 'healthy') return 'healthy' as const;
+          if (healthStatus === 'unhealthy') return 'unhealthy' as const;
+          if (healthStatus === 'demo') return 'demo' as const;
+          return 'unknown' as const;
+        })
+      )).filter(Boolean) as ('healthy' | 'unhealthy' | 'demo' | 'unknown')[]
+    };
+  };
+
+  // Get dynamic filter options based on current state
+  const availableOptions = getAvailableOptions();
+  
+  // Legacy variables for backward compatibility (now using dynamic options) - properly typed
+  const uniqueServiceTypes: string[] = availableOptions.serviceTypes;
+  const uniqueApiTypes: string[] = availableOptions.apiTypes;
+  const uniqueContinents: string[] = availableOptions.continents;
+  const uniqueCountries: string[] = availableOptions.countries;
+  const uniqueInstitutions: string[] = availableOptions.institutions;
+
+  // Dynamic health status options based on available statuses
+  const allHealthStatusOptions = [
+    { value: 'healthy' as const, label: 'Healthy', color: '#4caf50' },
+    { value: 'unhealthy' as const, label: 'Offline', color: '#f44336' },
+    { value: 'demo' as const, label: 'Demo', color: '#ff9800' },
+    { value: 'unknown' as const, label: 'Unknown', color: '#9e9e9e' }
   ];
+  
+  const healthStatusOptions = allHealthStatusOptions.filter(option => 
+    availableOptions.healthStatuses.includes(option.value)
+  );
 
   // Update active filter count
   useEffect(() => {
@@ -221,12 +303,12 @@ const Services: React.FC = () => {
     if (currentValues.length === allValues.length) {
       setter([]);
     } else {
-      setter(allValues);
+      setter(allValues.filter((v): v is string => Boolean(v)));
     }
   };
 
-  const handleMultiSelectChange = (values: string[], setter: (values: string[]) => void) => {
-    setter(values);
+  const handleMultiSelectChange = (values: (string | undefined)[], setter: (values: string[]) => void) => {
+    setter(values.filter((v): v is string => v !== undefined));
   };
 
   // Clear all filters
@@ -782,8 +864,10 @@ const Services: React.FC = () => {
               <Accordion defaultExpanded>
                 <AccordionSummary expandIcon={<ExpandMore />}>
                   <Box display="flex" alignItems="center" gap={1}>
-                    <Business color="primary" />
-                    <Typography variant="subtitle1">Service Type</Typography>
+                    <Business color={uniqueServiceTypes.length === 0 ? "disabled" : "primary"} />
+                    <Typography variant="subtitle1" color={uniqueServiceTypes.length === 0 ? "text.disabled" : "inherit"}>
+                      Service Type {uniqueServiceTypes.length === 0 && "(No options)"}
+                    </Typography>
                     {filterServiceType.length > 0 && (
                       <Badge badgeContent={filterServiceType.length} color="primary" />
                     )}
@@ -796,16 +880,17 @@ const Services: React.FC = () => {
                       options={uniqueServiceTypes}
                       value={filterServiceType}
                       onChange={(_, newValue) => handleMultiSelectChange(newValue, setFilterServiceType)}
+                      noOptionsText={uniqueServiceTypes.length === 0 ? "No service types available with current filters" : "No options"}
                       renderInput={(params) => (
                         <TextField
                           {...params}
-                          placeholder="Select service types..."
+                          placeholder={uniqueServiceTypes.length === 0 ? "No service types available" : "Select service types..."}
                           InputProps={{
                             ...params.InputProps,
                             startAdornment: (
                               <>
                                 <InputAdornment position="start">
-                                  <Business color="action" />
+                                  <Business color={uniqueServiceTypes.length === 0 ? "disabled" : "action"} />
                                 </InputAdornment>
                                 {params.InputProps.startAdornment}
                               </>
@@ -825,8 +910,10 @@ const Services: React.FC = () => {
                         size="small"
                         startIcon={filterServiceType.length === uniqueServiceTypes.length ? <DeselectOutlined /> : <SelectAll />}
                         onClick={() => handleMultiSelectAll(filterServiceType, uniqueServiceTypes, setFilterServiceType)}
+                        disabled={uniqueServiceTypes.length === 0}
                       >
                         {filterServiceType.length === uniqueServiceTypes.length ? 'Deselect All' : 'Select All'}
+                        {uniqueServiceTypes.length > 0 && ` (${uniqueServiceTypes.length})`}
                       </Button>
                     </Box>
                   </FormControl>
@@ -839,8 +926,10 @@ const Services: React.FC = () => {
               <Accordion defaultExpanded>
                 <AccordionSummary expandIcon={<ExpandMore />}>
                   <Box display="flex" alignItems="center" gap={1}>
-                    <Language color="secondary" />
-                    <Typography variant="subtitle1">API Type</Typography>
+                    <Language color={uniqueApiTypes.length === 0 ? "disabled" : "secondary"} />
+                    <Typography variant="subtitle1" color={uniqueApiTypes.length === 0 ? "text.disabled" : "inherit"}>
+                      API Type {uniqueApiTypes.length === 0 && "(No options)"}
+                    </Typography>
                     {filterApiType.length > 0 && (
                       <Badge badgeContent={filterApiType.length} color="secondary" />
                     )}
@@ -853,16 +942,17 @@ const Services: React.FC = () => {
                       options={uniqueApiTypes}
                       value={filterApiType}
                       onChange={(_, newValue) => handleMultiSelectChange(newValue, setFilterApiType)}
+                      noOptionsText={uniqueApiTypes.length === 0 ? "No API types available with current filters" : "No options"}
                       renderInput={(params) => (
                         <TextField
                           {...params}
-                          placeholder="Select API types..."
+                          placeholder={uniqueApiTypes.length === 0 ? "No API types available" : "Select API types..."}
                           InputProps={{
                             ...params.InputProps,
                             startAdornment: (
                               <>
                                 <InputAdornment position="start">
-                                  <Language color="action" />
+                                  <Language color={uniqueApiTypes.length === 0 ? "disabled" : "action"} />
                                 </InputAdornment>
                                 {params.InputProps.startAdornment}
                               </>
@@ -882,8 +972,10 @@ const Services: React.FC = () => {
                         size="small"
                         startIcon={filterApiType.length === uniqueApiTypes.length ? <DeselectOutlined /> : <SelectAll />}
                         onClick={() => handleMultiSelectAll(filterApiType, uniqueApiTypes, setFilterApiType)}
+                        disabled={uniqueApiTypes.length === 0}
                       >
                         {filterApiType.length === uniqueApiTypes.length ? 'Deselect All' : 'Select All'}
+                        {uniqueApiTypes.length > 0 && ` (${uniqueApiTypes.length})`}
                       </Button>
                     </Box>
                   </FormControl>
@@ -938,8 +1030,10 @@ const Services: React.FC = () => {
                         healthStatusOptions.map(o => o.value), 
                         setFilterHealthStatus
                       )}
+                      disabled={healthStatusOptions.length === 0}
                     >
                       {filterHealthStatus.length === healthStatusOptions.length ? 'Deselect All' : 'Select All'}
+                      {healthStatusOptions.length > 0 && ` (${healthStatusOptions.length})`}
                     </Button>
                   </Box>
                 </AccordionDetails>
