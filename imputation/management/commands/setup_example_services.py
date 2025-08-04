@@ -25,7 +25,7 @@ class Command(BaseCommand):
                 }
             },
             {
-                'name': 'ILIFU GA4GH Starter Kit',
+                'name': 'eLwazi ILIFU Node - Imputation Service',
                 'service_type': 'h3africa',
                 'api_type': 'ga4gh',
                 'api_url': 'http://ga4gh-starter-kit.ilifu.ac.za:6000/ga4gh/wes/v1',
