@@ -224,7 +224,7 @@ const LandingPage: React.FC = () => {
         <Container maxWidth="lg" sx={{ position: 'relative', zIndex: 1 }}>
           <Grid container spacing={4} alignItems="center">
             <Grid item xs={12} lg={8}>
-              <Box sx={{ mb: 3, textAlign: { xs: 'center', lg: 'left' } }}>
+              <Box sx={{ mb: 3, textAlign: 'center' }}>
                 <img 
                   src="/afrigen-d-logo.png" 
                   alt="AfriGen-D" 
@@ -240,7 +240,8 @@ const LandingPage: React.FC = () => {
                 gutterBottom 
                 sx={{ 
                   fontWeight: 'bold',
-                  fontSize: { xs: '2.5rem', md: '3.5rem' }
+                  fontSize: { xs: '2.5rem', md: '3.5rem' },
+                  textAlign: 'center'
                 }}
               >
                 Federated Genomic Imputation Platform
@@ -251,14 +252,15 @@ const LandingPage: React.FC = () => {
                 sx={{ 
                   mb: 4,
                   fontSize: { xs: '1.1rem', md: '1.25rem' },
-                  lineHeight: 1.6
+                  lineHeight: 1.6,
+                  textAlign: 'center'
                 }}
               >
                 Access multiple genomic imputation services through a unified platform. 
                 Connect to leading imputation servers including H3Africa, Michigan Imputation Server, 
                 GA4GH WES services, and DNASTACK platforms with a single interface.
               </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'center' }}>
                 <Button
                   variant="contained"
                   size="large"
