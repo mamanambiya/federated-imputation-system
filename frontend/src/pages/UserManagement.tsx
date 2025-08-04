@@ -211,13 +211,18 @@ const UserManagement: React.FC = () => {
         apiCall('/api/audit-logs/')
       ]);
       
-      setUsers(usersResponse);
-      setRoles(rolesResponse);
-      setAuditLogs(auditResponse);
+      // Ensure we have arrays, handle paginated responses
+      setUsers(Array.isArray(usersResponse) ? usersResponse : (usersResponse?.results || []));
+      setRoles(Array.isArray(rolesResponse) ? rolesResponse : (rolesResponse?.results || []));
+      setAuditLogs(Array.isArray(auditResponse) ? auditResponse : (auditResponse?.results || []));
       showFeedback('Data loaded successfully', 'success');
     } catch (error) {
       console.error('Error loading data:', error);
-      showFeedback('Failed to load data', 'error');
+      // Set empty arrays on error to prevent map() errors
+      setUsers([]);
+      setRoles([]);
+      setAuditLogs([]);
+      showFeedback('Failed to load data. Please check your permissions.', 'error');
     } finally {
       setLoading(false);
     }
@@ -550,7 +555,7 @@ const UserManagement: React.FC = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {users.map((userProfile) => (
+              {users && users.length > 0 ? users.map((userProfile) => (
                 <TableRow key={userProfile.id}>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -604,7 +609,15 @@ const UserManagement: React.FC = () => {
                     </Tooltip>
                   </TableCell>
                 </TableRow>
-              ))}
+              )) : (
+                <TableRow>
+                  <TableCell colSpan={8} align="center">
+                    <Typography variant="body2" color="text.secondary">
+                      No users found. {loading ? 'Loading...' : 'Please check your permissions or contact an administrator.'}
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </TableContainer>
@@ -627,7 +640,7 @@ const UserManagement: React.FC = () => {
         </Box>
 
         <Grid container spacing={3}>
-          {roles.map((role) => (
+          {roles && roles.length > 0 ? roles.map((role) => (
             <Grid item xs={12} md={6} lg={4} key={role.id}>
               <Card>
                 <CardContent>
@@ -675,7 +688,17 @@ const UserManagement: React.FC = () => {
                 </CardContent>
               </Card>
             </Grid>
-          ))}
+          )) : (
+            <Grid item xs={12}>
+              <Card>
+                <CardContent>
+                  <Typography variant="body2" color="text.secondary" align="center">
+                    No roles found. {loading ? 'Loading...' : 'Please check your permissions or contact an administrator.'}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          )}
         </Grid>
       </TabPanel>
 
@@ -699,7 +722,7 @@ const UserManagement: React.FC = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {auditLogs.slice(0, 100).map((log) => (
+              {auditLogs && auditLogs.length > 0 ? auditLogs.slice(0, 100).map((log) => (
                 <TableRow key={log.id}>
                   <TableCell>
                     {format(new Date(log.timestamp), 'MMM dd, yyyy HH:mm:ss')}
@@ -728,7 +751,15 @@ const UserManagement: React.FC = () => {
                     </Tooltip>
                   </TableCell>
                 </TableRow>
-              ))}
+              )) : (
+                <TableRow>
+                  <TableCell colSpan={6} align="center">
+                    <Typography variant="body2" color="text.secondary">
+                      No audit logs found. {loading ? 'Loading...' : 'Please check your permissions or contact an administrator.'}
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </TableContainer>
@@ -796,11 +827,15 @@ const UserManagement: React.FC = () => {
                   label="Role"
                   onChange={(e) => setUserForm({ ...userForm, role_id: e.target.value })}
                 >
-                  {roles.map((role) => (
+                  {roles && roles.length > 0 ? roles.map((role) => (
                     <MenuItem key={role.id} value={role.id.toString()}>
                       {role.name}
                     </MenuItem>
-                  ))}
+                  )) : (
+                    <MenuItem value="" disabled>
+                      No roles available
+                    </MenuItem>
+                  )}
                 </Select>
               </FormControl>
             </Grid>
