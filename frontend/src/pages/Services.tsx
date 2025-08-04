@@ -71,6 +71,7 @@ const Services: React.FC = () => {
   const [filterApiType, setFilterApiType] = useState('');
   const [filterHealthStatus, setFilterHealthStatus] = useState('');
   const [filterLocation, setFilterLocation] = useState('');
+  const [filterContinent, setFilterContinent] = useState('');
 
   // Feedback and notification state
   const [snackbar, setSnackbar] = useState<{
@@ -99,6 +100,8 @@ const Services: React.FC = () => {
     const matchesApiType = filterApiType === '' || service.api_type === filterApiType;
     const matchesLocation = filterLocation === '' || 
       (service.location && service.location.toLowerCase().includes(filterLocation.toLowerCase()));
+    const matchesContinent = filterContinent === '' || 
+      (service.continent && service.continent.toLowerCase().includes(filterContinent.toLowerCase()));
 
     let matchesHealthStatus = true;
     if (filterHealthStatus !== '') {
@@ -112,13 +115,14 @@ const Services: React.FC = () => {
       }
     }
 
-    return matchesSearch && matchesServiceType && matchesApiType && matchesLocation && matchesHealthStatus;
+    return matchesSearch && matchesServiceType && matchesApiType && matchesLocation && matchesContinent && matchesHealthStatus;
   });
 
   // Get unique values for filter dropdowns
   const uniqueServiceTypes = Array.from(new Set(services.map(s => s.service_type))).filter(Boolean);
   const uniqueApiTypes = Array.from(new Set(services.map(s => s.api_type))).filter(Boolean);
   const uniqueLocations = Array.from(new Set(services.map(s => s.location))).filter(Boolean);
+  const uniqueContinents = Array.from(new Set(services.map(s => s.continent))).filter(Boolean);
 
   // Clear all filters
   const clearFilters = () => {
@@ -127,6 +131,7 @@ const Services: React.FC = () => {
     setFilterApiType('');
     setFilterHealthStatus('');
     setFilterLocation('');
+    setFilterContinent('');
     showFeedback('All filters cleared', 'info');
   };
 
@@ -602,7 +607,7 @@ const Services: React.FC = () => {
             </FormControl>
           </Grid>
 
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={2}>
             <FormControl fullWidth size="small">
               <InputLabel>Location</InputLabel>
               <Select
@@ -620,12 +625,30 @@ const Services: React.FC = () => {
             </FormControl>
           </Grid>
 
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid item xs={12} sm={6} md={2}>
+            <FormControl fullWidth size="small">
+              <InputLabel>Continent</InputLabel>
+              <Select
+                value={filterContinent}
+                label="Continent"
+                onChange={(e) => setFilterContinent(e.target.value)}
+              >
+                <MenuItem value="">All Continents</MenuItem>
+                {uniqueContinents.map(continent => (
+                  <MenuItem key={continent} value={continent}>
+                    {continent}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          <Grid item xs={12} sm={6} md={2}>
             <Button
               variant="outlined"
               startIcon={<Clear />}
               onClick={clearFilters}
-              disabled={!searchTerm && !filterServiceType && !filterApiType && !filterHealthStatus && !filterLocation}
+              disabled={!searchTerm && !filterServiceType && !filterApiType && !filterHealthStatus && !filterLocation && !filterContinent}
               fullWidth
             >
               Clear Filters
@@ -700,10 +723,28 @@ const Services: React.FC = () => {
                 </Typography>
 
                 {service.location && (
-                  <Box display="flex" alignItems="center" mb={2}>
+                  <Box display="flex" alignItems="center" mb={1}>
                     <LocationOn sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
                     <Typography variant="body2" color="text.secondary">
                       {service.location}
+                    </Typography>
+                  </Box>
+                )}
+                
+                {service.continent && (
+                  <Box display="flex" alignItems="center" mb={2}>
+                    <Box
+                      sx={{
+                        width: 12,
+                        height: 12,
+                        borderRadius: '50%',
+                        backgroundColor: service.continent === 'Africa' ? '#4CAF50' : 
+                                        service.continent === 'North America' ? '#2196F3' : '#FF9800',
+                        mr: 1
+                      }}
+                    />
+                    <Typography variant="body2" color="text.secondary">
+                      {service.continent}
                     </Typography>
                   </Box>
                 )}

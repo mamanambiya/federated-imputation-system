@@ -17,6 +17,7 @@ class Command(BaseCommand):
                 'api_url': 'https://platform.elwazi.org',
                 'description': 'eLwazi Omics Platform for genomic data analysis and imputation workflows',
                 'location': 'Witwatersrand University, Johannesburg, South Africa',
+                'continent': 'Africa',
                 'is_active': True,
                 'api_key_required': True,
                 'max_file_size_mb': 1000,

@@ -27,6 +27,7 @@ class ImputationService(models.Model):
     api_url = models.URLField()
     description = models.TextField(blank=True)
     location = models.CharField(max_length=200, blank=True, help_text="Geographic location or institution hosting the service")
+    continent = models.CharField(max_length=50, blank=True, help_text="Continent where the service is located")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
