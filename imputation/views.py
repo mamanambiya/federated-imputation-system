@@ -330,23 +330,26 @@ class ImputationServiceViewSet(viewsets.ModelViewSet):
             }
             
         except ConnectionError:
-            # For demo services, provide more informative messages
-            if 'elwazi' in service.api_url.lower() or 'icermali' in service.api_url.lower():
-                message = 'Demo service - not currently accessible (expected for development)'
-                health_status = 'demo'
+            # Provide informative messages based on service accessibility
+            # Note: A service being unreachable means it's offline (unhealthy), regardless of whether it's demo or production
+            base_url_to_check = base_url if 'base_url' in locals() else (service.base_url or service.api_url or '')
+
+            if 'elwazi' in base_url_to_check.lower() or 'icermali' in base_url_to_check.lower():
+                message = 'Service not accessible - connection refused (demo/development service)'
+                note = 'This is a demo service and may not always be running'
             else:
-                message = 'Unable to connect to service'
-                health_status = 'unhealthy'
-            
+                message = 'Service not accessible - connection refused'
+                note = 'Service may be down, unreachable, or blocking requests'
+
             logger.warning(f"Connection error checking {service.name} at {test_url} - {message}")
             return {
                 'service_id': service.id,
                 'service_name': service.name,
-                'status': health_status,
+                'status': 'unhealthy',  # Always use 'unhealthy' for unreachable services
                 'message': message,
                 'test_url': test_url,
                 'error': 'ConnectionError',
-                'note': 'This is expected for demo/development services'
+                'note': note
             }
             
         except RequestException as exc:

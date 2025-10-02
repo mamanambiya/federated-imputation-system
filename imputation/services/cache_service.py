@@ -31,7 +31,6 @@ class HealthCheckCacheService:
     ONLINE_INTERVAL = 15 * 60  # 15 minutes
     OFFLINE_USER_INTERVAL = 1 * 60  # 1 minute
     OFFLINE_SYSTEM_INTERVAL = 10  # 10 seconds
-    DEMO_INTERVAL = 30 * 60  # 30 minutes
     
     def __init__(self):
         self.cache_timeout = getattr(settings, 'HEALTH_CHECK_CACHE_TIMEOUT', 3600)  # 1 hour max
@@ -43,19 +42,20 @@ class HealthCheckCacheService:
     def _get_interval(self, status: str, is_user_request: bool = True) -> int:
         """
         Get cache interval based on status and request type.
-        
+
         Args:
-            status: Service status ('healthy', 'unhealthy', 'demo', etc.)
+            status: Service status ('healthy', 'unhealthy', 'unknown', 'timeout')
             is_user_request: True for user-initiated, False for system-initiated
-            
+
         Returns:
             Cache interval in seconds
+
+        Note: Removed 'demo' status - demo services should report as 'healthy' (online)
+              or 'unhealthy' (offline) like any other service.
         """
         if status in ['healthy', 'checking']:
             return self.ONLINE_INTERVAL
-        elif status == 'demo':
-            return self.DEMO_INTERVAL
-        else:  # unhealthy, unknown, etc.
+        else:  # unhealthy, unknown, timeout, etc.
             return self.OFFLINE_USER_INTERVAL if is_user_request else self.OFFLINE_SYSTEM_INTERVAL
     
     def get_cached_health(self, service_id: int) -> Optional[Dict[str, Any]]:
@@ -209,8 +209,7 @@ class HealthCheckCacheService:
             'intervals': {
                 'online': f"{self.ONLINE_INTERVAL}s ({self.ONLINE_INTERVAL//60}min)",
                 'offline_user': f"{self.OFFLINE_USER_INTERVAL}s ({self.OFFLINE_USER_INTERVAL//60}min)",
-                'offline_system': f"{self.OFFLINE_SYSTEM_INTERVAL}s",
-                'demo': f"{self.DEMO_INTERVAL}s ({self.DEMO_INTERVAL//60}min)"
+                'offline_system': f"{self.OFFLINE_SYSTEM_INTERVAL}s"
             }
         }
     

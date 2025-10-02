@@ -90,7 +90,7 @@ const Services: React.FC = () => {
   const [referencePanels, setReferencePanels] = useState<ReferencePanel[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [syncing, setSyncing] = useState<number | null>(null);
-  const [serviceHealth, setServiceHealth] = useState<Record<number, 'healthy' | 'unhealthy' | 'checking' | 'demo'>>({});
+  const [serviceHealth, setServiceHealth] = useState<Record<number, 'healthy' | 'unhealthy' | 'checking' | 'unknown'>>({});
   
   // Advanced filtering and search state
   const [searchTerm, setSearchTerm] = useState('');
@@ -192,10 +192,8 @@ const Services: React.FC = () => {
         matchesHealthStatus = healthStatus === 'healthy';
       } else if (filterHealthStatus.includes('unhealthy')) {
         matchesHealthStatus = healthStatus === 'unhealthy';
-      } else if (filterHealthStatus.includes('demo')) {
-        matchesHealthStatus = healthStatus === 'demo';
       } else if (filterHealthStatus.includes('unknown')) {
-        matchesHealthStatus = !healthStatus || healthStatus === 'checking';
+        matchesHealthStatus = !healthStatus || healthStatus === 'checking' || healthStatus === 'unknown';
       }
     }
 
@@ -244,8 +242,7 @@ const Services: React.FC = () => {
           matchesHealthStatus = filterHealthStatus.some(status => {
             if (status === 'healthy') return healthStatus === 'healthy';
             if (status === 'unhealthy') return healthStatus === 'unhealthy';
-            if (status === 'demo') return healthStatus === 'demo';
-            if (status === 'unknown') return !healthStatus || healthStatus === 'checking';
+            if (status === 'unknown') return !healthStatus || healthStatus === 'checking' || healthStatus === 'unknown';
             return false;
           });
         }
@@ -298,10 +295,10 @@ const Services: React.FC = () => {
           const healthStatus = serviceHealth[s.id];
           if (healthStatus === 'healthy') return 'healthy' as const;
           if (healthStatus === 'unhealthy') return 'unhealthy' as const;
-          if (healthStatus === 'demo') return 'demo' as const;
+          if (healthStatus === 'unknown') return 'unknown' as const;
           return 'unknown' as const;
         })
-      )).filter(Boolean) as ('healthy' | 'unhealthy' | 'demo' | 'unknown')[]
+      )).filter(Boolean) as ('healthy' | 'unhealthy' | 'unknown')[]
     };
   };
 
@@ -317,9 +314,8 @@ const Services: React.FC = () => {
 
   // Dynamic health status options based on available statuses
   const allHealthStatusOptions = [
-    { value: 'healthy' as const, label: 'Healthy', color: '#4caf50' },
+    { value: 'healthy' as const, label: 'Online', color: '#4caf50' },
     { value: 'unhealthy' as const, label: 'Offline', color: '#f44336' },
-    { value: 'demo' as const, label: 'Demo', color: '#ff9800' },
     { value: 'unknown' as const, label: 'Unknown', color: '#9e9e9e' }
   ];
   
@@ -410,7 +406,7 @@ const Services: React.FC = () => {
 
   const checkServicesHealth = async (forceCheck: boolean = false) => {
     const startTime = Date.now();
-    const healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking' | 'demo'> = {};
+    const healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking' | 'unknown'> = {};
     
     // Show operation start feedback
     setOperationInProgress('Checking service health...');
@@ -451,14 +447,14 @@ const Services: React.FC = () => {
           }
           
           // Update status
-          if (status === 'demo') {
-            healthStatus[service.id] = 'demo';
-            healthyCount++; // Count demo as healthy for reporting
-          } else if (status === 'healthy') {
+          if (status === 'healthy') {
             healthStatus[service.id] = 'healthy';
             healthyCount++;
-          } else {
+          } else if (status === 'unhealthy') {
             healthStatus[service.id] = 'unhealthy';
+            unhealthyCount++;
+          } else {
+            healthStatus[service.id] = 'unknown';
             unhealthyCount++;
           }
           
@@ -479,15 +475,8 @@ const Services: React.FC = () => {
         
       } catch (error) {
         console.error(`Health check failed for ${service.name}:`, error);
-        // Check if this is a demo service
-        const apiUrl = service.api_url || service.base_url || '';
-        if (service.name.toLowerCase().includes('elwazi') || apiUrl.includes('elwazi') || apiUrl.includes('icermali')) {
-          healthStatus[service.id] = 'demo';
-          healthyCount++; // Count demo services as healthy for reporting
-        } else {
-          healthStatus[service.id] = 'unhealthy';
-          unhealthyCount++;
-        }
+        healthStatus[service.id] = 'unhealthy';
+        unhealthyCount++;
         freshCount++; // Failed checks are fresh attempts
       }
       
@@ -530,9 +519,9 @@ const Services: React.FC = () => {
       showFeedback(`Successfully loaded ${data.length} imputation services`, 'success');
 
       // Initialize health status for all services
-      const healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking' | 'demo'> = {};
+      const healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking' | 'unknown'> = {};
       data.forEach(service => {
-        healthStatus[service.id] = 'demo'; // Default to demo status
+        healthStatus[service.id] = 'checking'; // Default to checking status
       });
       setServiceHealth(healthStatus);
 
@@ -551,21 +540,16 @@ const Services: React.FC = () => {
   };
 
   // Health monitoring functions
-  const checkServiceHealth = async (service: ImputationService): Promise<'healthy' | 'unhealthy' | 'demo'> => {
+  const checkServiceHealth = async (service: ImputationService): Promise<'healthy' | 'unhealthy' | 'unknown'> => {
     try {
-      // For demo purposes, we'll simulate health checks
-      // In a real implementation, this would ping the actual service endpoints
+      // Simple health check simulation (legacy function, not used anymore)
+      // The actual health checks are now done by checkServicesHealth() using backend API
       const apiUrl = service.api_url || service.base_url;
       if (!apiUrl) {
-        return 'demo'; // No URL to check
-      }
-
-      if (apiUrl.includes('demo') || apiUrl.includes('localhost')) {
-        return 'demo';
+        return 'unknown'; // No URL to check
       }
 
       // Simulate network check with timeout
-
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
@@ -579,16 +563,11 @@ const Services: React.FC = () => {
         return 'healthy';
       } catch (fetchError) {
         clearTimeout(timeoutId);
-        // For demo services or CORS-restricted endpoints, consider them healthy
-        if (service.name.toLowerCase().includes('demo') ||
-          service.description.toLowerCase().includes('demo')) {
-          return 'demo';
-        }
         return 'unhealthy';
       }
     } catch (error) {
       console.warn(`Health check failed for ${service.name}:`, error);
-      return 'demo'; // Default to demo for development
+      return 'unknown'; // Default to unknown on errors
     }
   };
 
@@ -684,22 +663,22 @@ const Services: React.FC = () => {
         );
       case 'unhealthy':
         return (
-          <Circle 
-            sx={{ 
-              color: '#f44336', 
+          <Circle
+            sx={{
+              color: '#f44336',
               fontSize: 12,
               mr: 1
-            }} 
+            }}
           />
         );
-      case 'demo':
+      case 'unknown':
         return (
-          <Circle 
-            sx={{ 
-              color: '#ff9800', 
+          <Circle
+            sx={{
+              color: '#9e9e9e',
               fontSize: 12,
               mr: 1
-            }} 
+            }}
           />
         );
       case 'checking':
@@ -727,16 +706,16 @@ const Services: React.FC = () => {
 
   const getServiceStatusText = (serviceId: number) => {
     const status = serviceHealth[serviceId];
-    
+
     switch (status) {
       case 'healthy':
         return 'Online';
       case 'unhealthy':
         return 'Offline';
-      case 'demo':
-        return 'Demo';
       case 'checking':
         return 'Checking...';
+      case 'unknown':
+        return 'Unknown';
       default:
         return 'Unknown';
     }
