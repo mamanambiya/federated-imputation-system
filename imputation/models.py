@@ -415,7 +415,7 @@ class ImputationJob(models.Model):
     population = models.CharField(max_length=100, blank=True)
     
     # Job status and progress
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
     progress_percentage = models.IntegerField(default=0)
     external_job_id = models.CharField(max_length=200, blank=True)  # Service-specific job ID
     
@@ -440,6 +440,13 @@ class ImputationJob(models.Model):
     
     class Meta:
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'status', 'created_at']),
+            models.Index(fields=['service', 'status']),
+            models.Index(fields=['status', 'created_at']),
+            models.Index(fields=['external_job_id']),
+            models.Index(fields=['reference_panel', 'status']),
+        ]
     
     def __str__(self):
         return f"{self.name} ({self.service.name})"

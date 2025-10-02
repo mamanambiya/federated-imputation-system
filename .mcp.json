@@ -1,0 +1,33 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp"
+      ],
+      "env": {
+        "NODE_OPTIONS": "--no-warnings"
+      }
+    },
+    "sequential-thinking": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ]
+    },
+    "claude-context": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@zilliz/claude-context-mcp"
+      ],
+      "env": {
+        "EMBEDDING_PROVIDER": "OpenAI",
+        "OPENAI_API_KEY": "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",
+        "MILVUS_ADDRESS": "localhost:19530"
+      }
+    }
+  }
+}

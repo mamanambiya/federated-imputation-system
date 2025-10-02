@@ -5,18 +5,28 @@ import axios, { AxiosInstance, AxiosResponse } from 'axios';
 export interface ImputationService {
   id: number;
   name: string;
-  service_type: 'h3africa' | 'michigan';
-  api_type?: 'michigan' | 'ga4gh' | 'dnastack';
-  api_url: string;
+  service_type: 'h3africa' | 'michigan' | 'ga4gh' | 'dnastack' | 'custom';
+  api_type?: 'michigan' | 'ga4gh' | 'dnastack' | 'custom';
+  base_url?: string; // Microservices field
+  api_url?: string; // Legacy Django field - for backward compatibility
   api_config?: any;
   description: string;
+  version?: string;
   location?: string;
   continent?: string;
   is_active: boolean;
-  api_key_required: boolean;
+  is_available?: boolean;
+  requires_auth?: boolean; // Microservices field
+  api_key_required?: boolean; // Legacy Django field - for backward compatibility
+  auth_type?: string;
   max_file_size_mb: number;
   supported_formats: string[];
-  reference_panels_count: number;
+  supported_builds?: string[]; // May not exist in legacy responses
+  reference_panels_count?: number; // May not exist in microservices responses
+  last_health_check?: string;
+  health_status?: string;
+  response_time_ms?: number;
+  error_message?: string;
   created_at: string;
   updated_at: string;
 }
@@ -105,22 +115,27 @@ export interface DashboardStats {
     accessible_services: number;
   };
   recent_jobs: ImputationJob[];
+  status?: string;
+  message?: string;
 }
 
 // API Context
 interface ApiContextType {
   api: AxiosInstance;
   apiCall: (endpoint: string, options?: RequestInit) => Promise<any>;
-  
+
   // Services
   getServices: () => Promise<ImputationService[]>;
   getService: (id: number) => Promise<ImputationService>;
+  createService: (data: any) => Promise<ImputationService>;
+  updateService: (id: number, data: any) => Promise<ImputationService>;
+  deleteService: (id: number) => Promise<void>;
   syncReferencePanels: (serviceId: number) => Promise<{ message: string; task_id: string }>;
-  
+
   // Reference Panels
   getReferencePanels: (serviceId?: number, population?: string, build?: string) => Promise<ReferencePanel[]>;
   getServiceReferencePanels: (serviceId: number) => Promise<ReferencePanel[]>;
-  
+
   // Jobs
   getJobs: (status?: string, serviceId?: number, search?: string) => Promise<ImputationJob[]>;
   getJob: (id: string) => Promise<ImputationJob>;
@@ -130,7 +145,7 @@ interface ApiContextType {
   getJobStatusUpdates: (id: string) => Promise<JobStatusUpdate[]>;
   getJobFiles: (id: string) => Promise<ResultFile[]>;
   downloadFile: (jobId: string, fileId: number) => Promise<{ download_url: string; filename: string; file_size: number }>;
-  
+
   // Dashboard
   getDashboardStats: () => Promise<DashboardStats>;
   getServicesOverview: () => Promise<any[]>;
@@ -138,20 +153,31 @@ interface ApiContextType {
 
 const ApiContext = createContext<ApiContextType | undefined>(undefined);
 
-// Create axios instance
+// Create axios instance for microservices architecture
 const createApiInstance = (): AxiosInstance => {
-  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+  // API Gateway URL - all requests go through the gateway
+  const API_GATEWAY_URL = process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
   const instance = axios.create({
-    baseURL: `${API_BASE_URL}/api`,
+    baseURL: `${API_GATEWAY_URL}/api`,
     withCredentials: true,
     headers: {
       'Content-Type': 'application/json',
+      'X-Client-Type': 'web-frontend',
+      'X-Client-Version': '1.0.0',
     },
+    timeout: 30000, // 30 second timeout
   });
 
   // Add request interceptor for authentication
   instance.interceptors.request.use(
     (config) => {
+      // Add JWT token to Authorization header if available
+      const token = localStorage.getItem('access_token');
+      if (token) {
+        config.headers['Authorization'] = `Bearer ${token}`;
+      }
+
       // Add CSRF token if available
       const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.getAttribute('content');
       if (csrfToken) {
@@ -197,16 +223,53 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const getServices = async (): Promise<ImputationService[]> => {
     const response = await api.get('/services/');
     // Handle paginated response
-    if (response.data.results !== undefined) {
-      return response.data.results;
-    }
-    // Handle non-paginated response
-    return response.data;
+    let services = response.data.results !== undefined ? response.data.results : response.data;
+
+    // Add backward compatibility mapping
+    services = services.map((service: ImputationService) => {
+      if (service.base_url && !service.api_url) {
+        service.api_url = service.base_url;
+      }
+      if (service.api_key_required === undefined && service.requires_auth !== undefined) {
+        service.api_key_required = service.requires_auth;
+      }
+      if (service.reference_panels_count === undefined) {
+        service.reference_panels_count = 0;
+      }
+      return service;
+    });
+
+    return services;
   };
 
   const getService = async (id: number): Promise<ImputationService> => {
     const response: AxiosResponse<ImputationService> = await api.get(`/services/${id}/`);
+    // Add backward compatibility mapping
+    const service = response.data;
+    if (service.base_url && !service.api_url) {
+      service.api_url = service.base_url;
+    }
+    if (service.api_key_required === undefined && service.requires_auth !== undefined) {
+      service.api_key_required = service.requires_auth;
+    }
+    if (service.reference_panels_count === undefined) {
+      service.reference_panels_count = 0;
+    }
+    return service;
+  };
+
+  const createService = async (data: any): Promise<ImputationService> => {
+    const response: AxiosResponse<ImputationService> = await api.post('/services/', data);
     return response.data;
+  };
+
+  const updateService = async (id: number, data: any): Promise<ImputationService> => {
+    const response: AxiosResponse<ImputationService> = await api.patch(`/services/${id}/`, data);
+    return response.data;
+  };
+
+  const deleteService = async (id: number): Promise<void> => {
+    await api.delete(`/services/${id}/`);
   };
 
   const syncReferencePanels = async (serviceId: number): Promise<{ message: string; task_id: string }> => {
@@ -304,6 +367,9 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     apiCall,
     getServices,
     getService,
+    createService,
+    updateService,
+    deleteService,
     syncReferencePanels,
     getReferencePanels,
     getServiceReferencePanels,

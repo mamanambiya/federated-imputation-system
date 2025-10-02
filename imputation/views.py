@@ -34,6 +34,12 @@ from .serializers import (
     ServiceUserGroupSerializer, ServiceUserGroupCreateSerializer,
     AuditLogSerializer
 )
+
+# Advanced job management imports
+from .job_management import JobTemplate, JobBatch, ScheduledJob, JobManager
+from .pagination import StandardResultsSetPagination, ImputationJobFilter
+from .performance import CacheManager, monitor_performance
+from .monitoring import SystemMetrics, HealthChecker, AlertManager, MonitoringDashboard
 from .tasks import (
     submit_imputation_job, cancel_imputation_job,
     sync_service_reference_panels as sync_reference_panels
@@ -103,16 +109,54 @@ class CanViewAllJobs(permissions.BasePermission):
         return request.user.profile.can_view_all_jobs() if hasattr(request.user, 'profile') else request.user.is_superuser
 
 
-class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
-    """ViewSet for ImputationService operations."""
-    
+class ImputationServiceViewSet(viewsets.ModelViewSet):
+    """Enhanced ViewSet for comprehensive ImputationService CRUD operations."""
+
     authentication_classes = [CsrfExemptSessionAuthentication]
     serializer_class = ImputationServiceSerializer
-    permission_classes = [permissions.AllowAny]
-    
+
+    def get_permissions(self):
+        """Set permissions based on action."""
+        if self.action in ['list', 'retrieve']:
+            permission_classes = [permissions.AllowAny]
+        elif self.action in ['create', 'update', 'partial_update', 'destroy']:
+            permission_classes = [permissions.IsAuthenticated, IsAdminUser]
+        else:
+            permission_classes = [permissions.IsAuthenticated]
+
+        return [permission() for permission in permission_classes]
+
     def get_queryset(self):
-        """Get active imputation services."""
-        return ImputationService.objects.filter(is_active=True)
+        """Get imputation services with filtering options."""
+        queryset = ImputationService.objects.all()
+
+        # Filter by active status (default: active only for non-admin users)
+        if not (self.request.user.is_authenticated and self.request.user.is_staff):
+            queryset = queryset.filter(is_active=True)
+        else:
+            # Admin users can see all services
+            is_active = self.request.query_params.get('is_active')
+            if is_active is not None:
+                queryset = queryset.filter(is_active=is_active.lower() == 'true')
+
+        # Filter by service type
+        service_type = self.request.query_params.get('service_type')
+        if service_type:
+            queryset = queryset.filter(service_type=service_type)
+
+        # Filter by API type
+        api_type = self.request.query_params.get('api_type')
+        if api_type:
+            queryset = queryset.filter(api_type=api_type)
+
+        # Search by name or description
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search) | Q(description__icontains=search)
+            )
+
+        return queryset.order_by('name')
     
     @action(detail=True, methods=['post'])
     def sync_reference_panels(self, request, pk=None):
@@ -416,6 +460,375 @@ class ImputationServiceViewSet(viewsets.ReadOnlyModelViewSet):
             'services': results
         })
 
+    def create(self, request, *args, **kwargs):
+        """Create a new imputation service with validation."""
+        try:
+            # Validate required fields
+            required_fields = ['name', 'service_type', 'api_type', 'api_url']
+            for field in required_fields:
+                if not request.data.get(field):
+                    return Response(
+                        {'error': f'Field "{field}" is required'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            # Check for duplicate service names
+            if ImputationService.objects.filter(name=request.data.get('name')).exists():
+                return Response(
+                    {'error': 'A service with this name already exists'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Validate API URL format
+            api_url = request.data.get('api_url')
+            if not (api_url.startswith('http://') or api_url.startswith('https://')):
+                return Response(
+                    {'error': 'API URL must start with http:// or https://'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Create the service
+            serializer = self.get_serializer(data=request.data)
+            if serializer.is_valid():
+                service = serializer.save()
+
+                # Log the creation
+                AuditLog.objects.create(
+                    user=request.user,
+                    action='create',
+                    resource_type='service',
+                    resource_id=str(service.id),
+                    details=f'Created service: {service.name}'
+                )
+
+                return Response(
+                    {
+                        'message': f'Service "{service.name}" created successfully',
+                        'service': serializer.data
+                    },
+                    status=status.HTTP_201_CREATED
+                )
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            logger.error(f"Error creating service: {e}")
+            return Response(
+                {'error': 'Failed to create service'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def update(self, request, *args, **kwargs):
+        """Update an existing imputation service."""
+        try:
+            partial = kwargs.pop('partial', False)
+            instance = self.get_object()
+
+            # Check if name is being changed and if it conflicts
+            new_name = request.data.get('name')
+            if new_name and new_name != instance.name:
+                if ImputationService.objects.filter(name=new_name).exclude(id=instance.id).exists():
+                    return Response(
+                        {'error': 'A service with this name already exists'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            # Validate API URL if being updated
+            api_url = request.data.get('api_url')
+            if api_url and not (api_url.startswith('http://') or api_url.startswith('https://')):
+                return Response(
+                    {'error': 'API URL must start with http:// or https://'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            serializer = self.get_serializer(instance, data=request.data, partial=partial)
+            if serializer.is_valid():
+                service = serializer.save()
+
+                # Log the update
+                AuditLog.objects.create(
+                    user=request.user,
+                    action='update',
+                    resource_type='service',
+                    resource_id=str(service.id),
+                    details=f'Updated service: {service.name}'
+                )
+
+                return Response(
+                    {
+                        'message': f'Service "{service.name}" updated successfully',
+                        'service': serializer.data
+                    }
+                )
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            logger.error(f"Error updating service: {e}")
+            return Response(
+                {'error': 'Failed to update service'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def destroy(self, request, *args, **kwargs):
+        """Soft delete a service (mark as inactive) or hard delete if no dependencies."""
+        try:
+            instance = self.get_object()
+
+            # Check for dependencies
+            active_jobs = ImputationJob.objects.filter(service=instance, status__in=['pending', 'queued', 'running']).count()
+            if active_jobs > 0:
+                return Response(
+                    {'error': f'Cannot delete service with {active_jobs} active jobs. Please wait for jobs to complete or cancel them first.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Check if force delete is requested
+            force_delete = request.query_params.get('force', 'false').lower() == 'true'
+
+            if force_delete:
+                # Hard delete
+                service_name = instance.name
+                instance.delete()
+
+                # Log the deletion
+                AuditLog.objects.create(
+                    user=request.user,
+                    action='delete',
+                    resource_type='service',
+                    resource_id=str(instance.id),
+                    details=f'Permanently deleted service: {service_name}'
+                )
+
+                return Response(
+                    {'message': f'Service "{service_name}" permanently deleted'},
+                    status=status.HTTP_204_NO_CONTENT
+                )
+            else:
+                # Soft delete (mark as inactive)
+                instance.is_active = False
+                instance.save()
+
+                # Log the soft deletion
+                AuditLog.objects.create(
+                    user=request.user,
+                    action='deactivate',
+                    resource_type='service',
+                    resource_id=str(instance.id),
+                    details=f'Deactivated service: {instance.name}'
+                )
+
+                return Response(
+                    {'message': f'Service "{instance.name}" deactivated successfully'},
+                    status=status.HTTP_200_OK
+                )
+
+        except Exception as e:
+            logger.error(f"Error deleting service: {e}")
+            return Response(
+                {'error': 'Failed to delete service'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['post'])
+    def bulk_create(self, request):
+        """Create multiple services in bulk."""
+        try:
+            services_data = request.data.get('services', [])
+            if not services_data:
+                return Response(
+                    {'error': 'No services data provided'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            created_services = []
+            errors = []
+
+            for i, service_data in enumerate(services_data):
+                try:
+                    # Validate required fields
+                    required_fields = ['name', 'service_type', 'api_type', 'api_url']
+                    for field in required_fields:
+                        if not service_data.get(field):
+                            errors.append(f'Service {i+1}: Field "{field}" is required')
+                            continue
+
+                    # Check for duplicate names
+                    if ImputationService.objects.filter(name=service_data.get('name')).exists():
+                        errors.append(f'Service {i+1}: A service with name "{service_data.get("name")}" already exists')
+                        continue
+
+                    # Create service
+                    serializer = self.get_serializer(data=service_data)
+                    if serializer.is_valid():
+                        service = serializer.save()
+                        created_services.append(serializer.data)
+
+                        # Log creation
+                        AuditLog.objects.create(
+                            user=request.user,
+                            action='create',
+                            resource_type='service',
+                            resource_id=str(service.id),
+                            details=f'Bulk created service: {service.name}'
+                        )
+                    else:
+                        errors.append(f'Service {i+1}: {serializer.errors}')
+
+                except Exception as e:
+                    errors.append(f'Service {i+1}: {str(e)}')
+
+            return Response({
+                'created_services': created_services,
+                'created_count': len(created_services),
+                'errors': errors,
+                'error_count': len(errors)
+            }, status=status.HTTP_201_CREATED if created_services else status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            logger.error(f"Error in bulk create: {e}")
+            return Response(
+                {'error': 'Failed to bulk create services'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['patch'])
+    def bulk_update(self, request):
+        """Update multiple services in bulk."""
+        try:
+            updates = request.data.get('updates', [])
+            if not updates:
+                return Response(
+                    {'error': 'No updates provided'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            updated_services = []
+            errors = []
+
+            for update in updates:
+                try:
+                    service_id = update.get('id')
+                    if not service_id:
+                        errors.append('Service ID is required for each update')
+                        continue
+
+                    service = ImputationService.objects.get(id=service_id)
+                    serializer = self.get_serializer(service, data=update.get('data', {}), partial=True)
+
+                    if serializer.is_valid():
+                        service = serializer.save()
+                        updated_services.append(serializer.data)
+
+                        # Log update
+                        AuditLog.objects.create(
+                            user=request.user,
+                            action='update',
+                            resource_type='service',
+                            resource_id=str(service.id),
+                            details=f'Bulk updated service: {service.name}'
+                        )
+                    else:
+                        errors.append(f'Service {service_id}: {serializer.errors}')
+
+                except ImputationService.DoesNotExist:
+                    errors.append(f'Service with ID {service_id} not found')
+                except Exception as e:
+                    errors.append(f'Service {service_id}: {str(e)}')
+
+            return Response({
+                'updated_services': updated_services,
+                'updated_count': len(updated_services),
+                'errors': errors,
+                'error_count': len(errors)
+            })
+
+        except Exception as e:
+            logger.error(f"Error in bulk update: {e}")
+            return Response(
+                {'error': 'Failed to bulk update services'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['delete'])
+    def bulk_delete(self, request):
+        """Delete multiple services in bulk."""
+        try:
+            service_ids = request.data.get('service_ids', [])
+            force_delete = request.data.get('force_delete', False)
+
+            if not service_ids:
+                return Response(
+                    {'error': 'No service IDs provided'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            deleted_services = []
+            deactivated_services = []
+            errors = []
+
+            for service_id in service_ids:
+                try:
+                    service = ImputationService.objects.get(id=service_id)
+
+                    # Check for active jobs
+                    active_jobs = ImputationJob.objects.filter(
+                        service=service,
+                        status__in=['pending', 'queued', 'running']
+                    ).count()
+
+                    if active_jobs > 0 and not force_delete:
+                        errors.append(f'Service {service_id}: Has {active_jobs} active jobs')
+                        continue
+
+                    if force_delete:
+                        service_name = service.name
+                        service.delete()
+                        deleted_services.append({'id': service_id, 'name': service_name})
+
+                        # Log deletion
+                        AuditLog.objects.create(
+                            user=request.user,
+                            action='delete',
+                            resource_type='service',
+                            resource_id=str(service_id),
+                            details=f'Bulk deleted service: {service_name}'
+                        )
+                    else:
+                        service.is_active = False
+                        service.save()
+                        deactivated_services.append({'id': service_id, 'name': service.name})
+
+                        # Log deactivation
+                        AuditLog.objects.create(
+                            user=request.user,
+                            action='deactivate',
+                            resource_type='service',
+                            resource_id=str(service.id),
+                            details=f'Bulk deactivated service: {service.name}'
+                        )
+
+                except ImputationService.DoesNotExist:
+                    errors.append(f'Service with ID {service_id} not found')
+                except Exception as e:
+                    errors.append(f'Service {service_id}: {str(e)}')
+
+            return Response({
+                'deleted_services': deleted_services,
+                'deactivated_services': deactivated_services,
+                'deleted_count': len(deleted_services),
+                'deactivated_count': len(deactivated_services),
+                'errors': errors,
+                'error_count': len(errors)
+            })
+
+        except Exception as e:
+            logger.error(f"Error in bulk delete: {e}")
+            return Response(
+                {'error': 'Failed to bulk delete services'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class ReferencePanelViewSet(viewsets.ReadOnlyModelViewSet):
     """ViewSet for ReferencePanel operations."""
@@ -679,85 +1092,312 @@ class UserServiceAccessViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class DashboardViewSet(viewsets.ViewSet):
-    """ViewSet for dashboard statistics and overview."""
-    
+    """ViewSet for dashboard statistics and overview with enhanced error handling."""
+
     authentication_classes = [CsrfExemptSessionAuthentication]
     permission_classes = [permissions.AllowAny]  # Temporarily allow any for development
-    
+
+    def _get_default_stats(self):
+        """Return default stats when data is unavailable."""
+        return {
+            'job_stats': {
+                'total': 0,
+                'completed': 0,
+                'running': 0,
+                'failed': 0,
+                'success_rate': 0
+            },
+            'service_stats': {
+                'available_services': 0,
+                'accessible_services': 0
+            },
+            'recent_jobs': [],
+            'status': 'fallback',
+            'message': 'Using default values due to data unavailability'
+        }
+
+    def _get_safe_count(self, queryset, description="query"):
+        """Safely get count from queryset with error handling."""
+        try:
+            return queryset.count()
+        except Exception as e:
+            logger.error(f"Error executing {description}: {e}")
+            return 0
+
+    def _get_safe_data(self, queryset, serializer_class, description="data"):
+        """Safely serialize queryset data with error handling."""
+        try:
+            return serializer_class(queryset, many=True).data
+        except Exception as e:
+            logger.error(f"Error serializing {description}: {e}")
+            return []
+
     @action(detail=False, methods=['get'])
     def stats(self, request):
-        """Get dashboard statistics for the current user."""
-        user = request.user if request.user.is_authenticated else None
-        
-        # Job statistics
-        if user:
-            jobs = ImputationJob.objects.filter(user=user)
-            total_jobs = jobs.count()
-            completed_jobs = jobs.filter(status='completed').count()
-            running_jobs = jobs.filter(status__in=['pending', 'queued', 'running']).count()
-            failed_jobs = jobs.filter(status='failed').count()
-            
-            # Recent jobs
-            recent_jobs = jobs.order_by('-created_at')[:5]
-            recent_jobs_data = ImputationJobListSerializer(recent_jobs, many=True).data
-            
-            # User services
-            user_services = UserServiceAccess.objects.filter(
-                user=user, has_access=True
-            ).count()
-        else:
-            # For unauthenticated users, show global stats
+        """Get dashboard statistics with comprehensive error handling and fallbacks."""
+        try:
+            user = request.user if request.user.is_authenticated else None
+
+            # Initialize default values
             total_jobs = completed_jobs = running_jobs = failed_jobs = 0
             recent_jobs_data = []
             user_services = 0
-        
-        # Service statistics (available to all)
-        available_services = ImputationService.objects.filter(is_active=True).count()
-        
-        return Response({
-            'job_stats': {
-                'total': total_jobs,
-                'completed': completed_jobs,
-                'running': running_jobs,
-                'failed': failed_jobs,
-                'success_rate': (completed_jobs / total_jobs * 100) if total_jobs > 0 else 0
-            },
-            'service_stats': {
-                'available_services': available_services,
-                'accessible_services': user_services
-            },
-            'recent_jobs': recent_jobs_data
-        })
+            available_services = 0
+
+            # Job statistics with error handling
+            if user:
+                try:
+                    jobs = ImputationJob.objects.filter(user=user)
+                    total_jobs = self._get_safe_count(jobs, "total jobs")
+                    completed_jobs = self._get_safe_count(
+                        jobs.filter(status='completed'), "completed jobs"
+                    )
+                    running_jobs = self._get_safe_count(
+                        jobs.filter(status__in=['pending', 'queued', 'running']), "running jobs"
+                    )
+                    failed_jobs = self._get_safe_count(
+                        jobs.filter(status='failed'), "failed jobs"
+                    )
+
+                    # Recent jobs with error handling
+                    try:
+                        recent_jobs = jobs.order_by('-created_at')[:5]
+                        recent_jobs_data = self._get_safe_data(
+                            recent_jobs, ImputationJobListSerializer, "recent jobs"
+                        )
+                    except Exception as e:
+                        logger.error(f"Error fetching recent jobs: {e}")
+                        recent_jobs_data = []
+
+                    # User services with error handling
+                    try:
+                        user_services = self._get_safe_count(
+                            UserServiceAccess.objects.filter(user=user, has_access=True),
+                            "user services"
+                        )
+                    except Exception as e:
+                        logger.error(f"Error fetching user services: {e}")
+                        user_services = 0
+
+                except Exception as e:
+                    logger.error(f"Error fetching user job statistics: {e}")
+                    # Keep default values (0) for all stats
+
+            # Service statistics (available to all) with error handling
+            try:
+                available_services = self._get_safe_count(
+                    ImputationService.objects.filter(is_active=True),
+                    "available services"
+                )
+            except Exception as e:
+                logger.error(f"Error fetching available services: {e}")
+                available_services = 0
+
+            # Calculate success rate safely
+            success_rate = 0
+            if total_jobs > 0:
+                try:
+                    success_rate = round((completed_jobs / total_jobs * 100), 2)
+                except (ZeroDivisionError, TypeError):
+                    success_rate = 0
+
+            response_data = {
+                'job_stats': {
+                    'total': total_jobs,
+                    'completed': completed_jobs,
+                    'running': running_jobs,
+                    'failed': failed_jobs,
+                    'success_rate': success_rate
+                },
+                'service_stats': {
+                    'available_services': available_services,
+                    'accessible_services': user_services
+                },
+                'recent_jobs': recent_jobs_data,
+                'status': 'success',
+                'timestamp': timezone.now().isoformat()
+            }
+
+            return Response(response_data)
+
+        except Exception as e:
+            logger.error(f"Critical error in dashboard stats: {e}")
+            # Return fallback data with error indication
+            fallback_data = self._get_default_stats()
+            fallback_data['error'] = str(e)
+            fallback_data['timestamp'] = timezone.now().isoformat()
+
+            return Response(
+                fallback_data,
+                status=status.HTTP_200_OK  # Return 200 with fallback data
+            )
     
     @action(detail=False, methods=['get'])
     def services_overview(self, request):
-        """Get overview of all active services with their capabilities."""
-        services = ImputationService.objects.filter(is_active=True)
-        services_data = []
-        
-        for service in services:
-            active_panels = ReferencePanel.objects.filter(
-                service=service, 
-                is_active=True
-            )
-            
-            services_data.append({
-                'id': service.id,
-                'name': service.name,
-                'description': service.description,
-                'is_active': service.is_active,
-                'api_url': service.api_url,
-                'supported_formats': service.supported_formats,
-                'max_file_size_mb': service.max_file_size_mb,
-                'populations': list(
-                    active_panels.values_list('population', flat=True).distinct()
-                ),
-                'builds': list(
-                    active_panels.values_list('build', flat=True).distinct()
-                )
+        """Get overview of all active services with enhanced error handling."""
+        try:
+            services = ImputationService.objects.filter(is_active=True)
+            services_data = []
+
+            for service in services:
+                try:
+                    # Safely get reference panels
+                    active_panels = ReferencePanel.objects.filter(
+                        service=service,
+                        is_active=True
+                    )
+
+                    # Safely extract populations and builds
+                    populations = []
+                    builds = []
+
+                    try:
+                        populations = list(
+                            active_panels.values_list('population', flat=True).distinct()
+                        )
+                    except Exception as e:
+                        logger.error(f"Error fetching populations for service {service.id}: {e}")
+
+                    try:
+                        builds = list(
+                            active_panels.values_list('build', flat=True).distinct()
+                        )
+                    except Exception as e:
+                        logger.error(f"Error fetching builds for service {service.id}: {e}")
+
+                    # Safely construct service data
+                    service_data = {
+                        'id': service.id,
+                        'name': getattr(service, 'name', 'Unknown Service'),
+                        'description': getattr(service, 'description', ''),
+                        'is_active': getattr(service, 'is_active', False),
+                        'api_url': getattr(service, 'api_url', ''),
+                        'supported_formats': getattr(service, 'supported_formats', []),
+                        'max_file_size_mb': getattr(service, 'max_file_size_mb', 0),
+                        'populations': populations,
+                        'builds': builds,
+                        'reference_panels_count': self._get_safe_count(active_panels, f"panels for service {service.id}")
+                    }
+
+                    services_data.append(service_data)
+
+                except Exception as e:
+                    logger.error(f"Error processing service {service.id}: {e}")
+                    # Add minimal service data on error
+                    services_data.append({
+                        'id': getattr(service, 'id', 0),
+                        'name': getattr(service, 'name', 'Error Loading Service'),
+                        'description': 'Error loading service details',
+                        'is_active': False,
+                        'api_url': '',
+                        'supported_formats': [],
+                        'max_file_size_mb': 0,
+                        'populations': [],
+                        'builds': [],
+                        'reference_panels_count': 0,
+                        'error': str(e)
+                    })
+
+            return Response({
+                'services': services_data,
+                'count': len(services_data),
+                'status': 'success',
+                'timestamp': timezone.now().isoformat()
             })
-        
-        return Response(services_data)
+
+        except Exception as e:
+            logger.error(f"Critical error in services overview: {e}")
+            return Response({
+                'services': [],
+                'count': 0,
+                'status': 'error',
+                'error': str(e),
+                'timestamp': timezone.now().isoformat()
+            }, status=status.HTTP_200_OK)  # Return 200 with error info
+
+    @action(detail=False, methods=['get'])
+    def health(self, request):
+        """Get dashboard health status and system information."""
+        try:
+            health_data = {
+                'status': 'healthy',
+                'timestamp': timezone.now().isoformat(),
+                'checks': {},
+                'services': {},
+                'database': {},
+                'errors': []
+            }
+
+            # Database connectivity check
+            try:
+                from django.db import connection
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT 1")
+                    health_data['checks']['database'] = 'healthy'
+                    health_data['database']['connection'] = 'active'
+            except Exception as e:
+                health_data['checks']['database'] = 'unhealthy'
+                health_data['database']['connection'] = 'failed'
+                health_data['errors'].append(f"Database: {str(e)}")
+                health_data['status'] = 'degraded'
+
+            # Service availability check
+            try:
+                active_services = ImputationService.objects.filter(is_active=True).count()
+                total_services = ImputationService.objects.count()
+                health_data['services'] = {
+                    'active': active_services,
+                    'total': total_services,
+                    'status': 'healthy' if active_services > 0 else 'warning'
+                }
+                health_data['checks']['services'] = 'healthy' if active_services > 0 else 'warning'
+
+                if active_services == 0:
+                    health_data['errors'].append("No active services available")
+                    health_data['status'] = 'degraded'
+
+            except Exception as e:
+                health_data['checks']['services'] = 'unhealthy'
+                health_data['services']['status'] = 'error'
+                health_data['errors'].append(f"Services: {str(e)}")
+                health_data['status'] = 'unhealthy'
+
+            # Reference panels check
+            try:
+                active_panels = ReferencePanel.objects.filter(is_active=True).count()
+                health_data['checks']['reference_panels'] = 'healthy' if active_panels > 0 else 'warning'
+                health_data['database']['reference_panels'] = active_panels
+
+                if active_panels == 0:
+                    health_data['errors'].append("No active reference panels available")
+                    if health_data['status'] == 'healthy':
+                        health_data['status'] = 'degraded'
+
+            except Exception as e:
+                health_data['checks']['reference_panels'] = 'unhealthy'
+                health_data['errors'].append(f"Reference panels: {str(e)}")
+                health_data['status'] = 'unhealthy'
+
+            # Overall status determination
+            if len(health_data['errors']) == 0:
+                health_data['status'] = 'healthy'
+            elif any('unhealthy' in check for check in health_data['checks'].values()):
+                health_data['status'] = 'unhealthy'
+            else:
+                health_data['status'] = 'degraded'
+
+            return Response(health_data)
+
+        except Exception as e:
+            logger.error(f"Critical error in dashboard health check: {e}")
+            return Response({
+                'status': 'unhealthy',
+                'timestamp': timezone.now().isoformat(),
+                'error': str(e),
+                'checks': {},
+                'services': {},
+                'database': {}
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class IndexView(TemplateView):
@@ -825,9 +1465,24 @@ class UserInfoView(APIView):
     """API view to get current user information."""
     authentication_classes = [CsrfExemptSessionAuthentication]
     permission_classes = [permissions.IsAuthenticated]
-    
+
     def get(self, request):
         user = request.user
+
+        # Get user profile information if available
+        profile_data = {}
+        if hasattr(user, 'profile') and user.profile:
+            profile = user.profile
+            profile_data = {
+                'role': profile.role.name if profile.role else None,
+                'organization': profile.organization,
+                'department': profile.department,
+                'position': profile.position,
+                'research_area': profile.research_area,
+                'institution': profile.institution,
+                'country': profile.country,
+            }
+
         return Response({
             'user': {
                 'id': user.id,
@@ -835,8 +1490,15 @@ class UserInfoView(APIView):
                 'email': user.email,
                 'first_name': user.first_name,
                 'last_name': user.last_name,
-            }
-        }) 
+                'is_staff': user.is_staff,
+                'is_superuser': user.is_superuser,
+                'date_joined': user.date_joined.isoformat() if user.date_joined else None,
+                'last_login': user.last_login.isoformat() if user.last_login else None,
+                'profile': profile_data,
+            },
+            'authenticated': True,
+            'session_id': request.session.session_key,
+        })
 
 
 class UserRoleViewSet(viewsets.ModelViewSet):
@@ -1258,4 +1920,109 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
         if end_date:
             queryset = queryset.filter(timestamp__lte=end_date)
         
-        return queryset 
+        return queryset
+
+
+# Monitoring and Observability Views
+
+class SystemMetricsView(APIView):
+    """API view for system metrics"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        """Get current system metrics"""
+        try:
+            metrics = SystemMetrics.get_system_metrics()
+            return Response(metrics)
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to get system metrics: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class HealthCheckView(APIView):
+    """API view for health checks"""
+    permission_classes = []  # Allow unauthenticated access for monitoring tools
+
+    def get(self, request):
+        """Perform comprehensive health check"""
+        try:
+            health_status = HealthChecker.check_system_health()
+
+            # Return appropriate HTTP status based on health
+            if health_status['overall_status'] == 'critical':
+                http_status = status.HTTP_503_SERVICE_UNAVAILABLE
+            elif health_status['overall_status'] in ['error', 'warning']:
+                http_status = status.HTTP_200_OK  # Still operational
+            else:
+                http_status = status.HTTP_200_OK
+
+            return Response(health_status, status=http_status)
+        except Exception as e:
+            return Response(
+                {
+                    'overall_status': 'error',
+                    'error': f'Health check failed: {str(e)}',
+                    'timestamp': timezone.now().isoformat()
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class MonitoringDashboardView(APIView):
+    """API view for monitoring dashboard data with enhanced error handling"""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        """Get comprehensive dashboard data with fallback mechanisms"""
+        try:
+            # Try to get full dashboard data
+            dashboard_data = MonitoringDashboard.get_dashboard_data()
+
+            # Validate the response
+            if not dashboard_data or 'error' in dashboard_data:
+                raise Exception("Invalid dashboard data received")
+
+            # Add success status
+            dashboard_data['status'] = 'success'
+            dashboard_data['timestamp'] = timezone.now().isoformat()
+
+            return Response(dashboard_data)
+
+        except Exception as e:
+            logger.error(f"Error getting monitoring dashboard data: {e}")
+
+            # Return fallback data
+            fallback_data = {
+                'status': 'fallback',
+                'error': str(e),
+                'timestamp': timezone.now().isoformat(),
+                'system_metrics': {
+                    'cpu_percent': 0,
+                    'memory_percent': 0,
+                    'disk_percent': 0,
+                    'error': 'System metrics unavailable'
+                },
+                'database_metrics': {
+                    'active_connections': 0,
+                    'database_size': 'Unknown',
+                    'error': 'Database metrics unavailable'
+                },
+                'application_metrics': {
+                    'jobs': {'total': 0, 'recent_24h': 0},
+                    'services': {'active': 0, 'total': 0},
+                    'error': 'Application metrics unavailable'
+                },
+                'health_status': {
+                    'overall_status': 'unknown',
+                    'checks': {},
+                    'error': 'Health status unavailable'
+                },
+                'recent_alerts': []
+            }
+
+            return Response(
+                fallback_data,
+                status=status.HTTP_200_OK  # Return 200 with fallback data
+            )

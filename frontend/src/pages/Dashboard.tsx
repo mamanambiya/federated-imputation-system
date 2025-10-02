@@ -16,6 +16,8 @@ import {
   ListItemIcon,
   CircularProgress,
   Paper,
+  Fade,
+  Tooltip,
 } from '@mui/material';
 import {
   Add,
@@ -28,49 +30,114 @@ import {
   Group,
   Speed,
   TrendingUp,
+  Refresh,
+  Info,
 } from '@mui/icons-material';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import { format } from 'date-fns';
 import { useApi, DashboardStats, ImputationJob } from '../contexts/ApiContext';
+import { useNotifications, useNotificationHelpers } from '../components/Common/NotificationSystem';
+import {
+  DashboardStatsSkeleton,
+  ChartSkeleton,
+  FadeLoading,
+  useLoadingState
+} from '../components/Common/LoadingComponents';
+import {
+  AccessibleButton,
+  AccessibleIconButton,
+  ScreenReaderOnly,
+  LiveRegion
+} from '../components/Common/AccessibilityHelpers';
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { getDashboardStats } = useApi();
-  
+  const { notifyApiError, notifySuccess, notifyInfo } = useNotificationHelpers();
+  const { loading, error, startLoading, stopLoading, setLoadingError } = useLoadingState(true);
+
   const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);
 
   useEffect(() => {
     loadStats();
   }, []);
 
-  const loadStats = async () => {
+  // Auto-refresh functionality
+  useEffect(() => {
+    if (!autoRefresh) return;
+
+    const interval = setInterval(() => {
+      loadStats(true); // Silent refresh
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [autoRefresh]);
+
+  const loadStats = async (silent = false) => {
     try {
-      setLoading(true);
-      setError(null);
+      if (!silent) {
+        startLoading();
+      }
+
       const data = await getDashboardStats();
+
+      // Check if we received fallback data
+      if (data.status === 'fallback') {
+        notifyInfo('Some dashboard data may be outdated. System is recovering.', 'Data Status');
+      } else if (data.status === 'success' && !silent) {
+        notifySuccess('Dashboard data loaded successfully');
+      }
+
       setStats(data);
+      setLastUpdated(new Date());
+
     } catch (err) {
       console.error('Error loading dashboard:', err);
-      setError('Failed to load dashboard data. Using default values.');
-      // Set default stats if API fails
-      setStats({
-        job_stats: {
-          total: 0,
-          completed: 0,
-          running: 0,
-          failed: 0,
-          success_rate: 0
-        },
-        service_stats: {
-          available_services: 0,
-          accessible_services: 0
-        },
-        recent_jobs: []
-      });
+
+      if (!silent) {
+        notifyApiError(err, 'Failed to load dashboard data');
+        setLoadingError('Failed to load dashboard data');
+      }
+
+      // Set fallback stats if no data exists
+      if (!stats) {
+        setStats({
+          job_stats: {
+            total: 0,
+            completed: 0,
+            running: 0,
+            failed: 0,
+            success_rate: 0
+          },
+          service_stats: {
+            available_services: 0,
+            accessible_services: 0
+          },
+          recent_jobs: [],
+          status: 'fallback',
+          message: 'Using default values due to connection issues'
+        });
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        stopLoading();
+      }
+    }
+  };
+
+  const handleRefresh = () => {
+    notifyInfo('Refreshing dashboard data...');
+    loadStats();
+  };
+
+  const toggleAutoRefresh = () => {
+    setAutoRefresh(!autoRefresh);
+    if (!autoRefresh) {
+      notifyInfo('Auto-refresh enabled (every 30 seconds)');
+    } else {
+      notifyInfo('Auto-refresh disabled');
     }
   };
 
@@ -132,100 +199,206 @@ const Dashboard: React.FC = () => {
   ];
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 3 }} id="main-content" role="main">
+      {/* Live region for dynamic announcements */}
+      <LiveRegion>
+        {loading && 'Loading dashboard data'}
+        {error && `Error: ${error}`}
+        {lastUpdated && `Dashboard updated at ${format(lastUpdated, 'HH:mm:ss')}`}
+      </LiveRegion>
+
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
         <Box>
-          <Typography variant="h4" gutterBottom>
+          <Typography variant="h4" gutterBottom component="h1">
             Dashboard
+            <ScreenReaderOnly>
+              - Federated Genomic Imputation Platform
+            </ScreenReaderOnly>
           </Typography>
           <Typography variant="body1" color="text.secondary">
             Overview of your imputation jobs and available services
           </Typography>
+          {lastUpdated && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+              Last updated: {format(lastUpdated, 'MMM dd, yyyy HH:mm:ss')}
+            </Typography>
+          )}
         </Box>
-        <Button
-          variant="contained"
-          startIcon={<Add />}
-          onClick={() => navigate('/jobs/new')}
-          size="large"
-        >
-          New Job
-        </Button>
+
+        <Box display="flex" gap={2} alignItems="center">
+          <AccessibleIconButton
+            onClick={handleRefresh}
+            ariaLabel="Refresh dashboard data"
+            tooltip="Refresh dashboard data"
+            disabled={loading}
+          >
+            <Refresh />
+          </AccessibleIconButton>
+
+          <Tooltip title={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh (30s)'}>
+            <Button
+              variant={autoRefresh ? 'contained' : 'outlined'}
+              size="small"
+              onClick={toggleAutoRefresh}
+              startIcon={<Schedule />}
+              aria-label={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh'}
+            >
+              Auto
+            </Button>
+          </Tooltip>
+
+          <AccessibleButton
+            onClick={() => navigate('/jobs/new')}
+            ariaLabel="Create new imputation job"
+            variant="contained"
+            size="large"
+            icon={<Add />}
+          >
+            New Job
+          </AccessibleButton>
+        </Box>
       </Box>
 
       {/* Statistics Cards */}
-      <Grid container spacing={3} mb={4}>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box display="flex" alignItems="center">
-                <Assignment color="primary" sx={{ fontSize: 40, mr: 2 }} />
-                <Box>
-                  <Typography variant="h4" fontWeight="bold">
-                    {stats.job_stats.total}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Total Jobs
-                  </Typography>
+      <FadeLoading
+        loading={loading}
+        skeleton={<DashboardStatsSkeleton />}
+        minHeight={120}
+      >
+        <Grid container spacing={3} mb={4}>
+          <Grid item xs={12} sm={6} md={3}>
+            <Card
+              sx={{
+                height: '100%',
+                '&:hover': { boxShadow: 3 },
+                transition: 'box-shadow 0.2s ease-in-out'
+              }}
+            >
+              <CardContent>
+                <Box display="flex" alignItems="center">
+                  <Assignment
+                    color="primary"
+                    sx={{ fontSize: 40, mr: 2 }}
+                    aria-hidden="true"
+                  />
+                  <Box>
+                    <Typography
+                      variant="h4"
+                      fontWeight="bold"
+                      component="div"
+                      aria-label={`${stats?.job_stats.total || 0} total jobs`}
+                    >
+                      {stats?.job_stats.total || 0}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Total Jobs
+                    </Typography>
+                  </Box>
                 </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box display="flex" alignItems="center">
-                <CheckCircle color="success" sx={{ fontSize: 40, mr: 2 }} />
-                <Box>
-                  <Typography variant="h4" fontWeight="bold">
-                    {stats.job_stats.completed}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Completed
-                  </Typography>
+          <Grid item xs={12} sm={6} md={3}>
+            <Card
+              sx={{
+                height: '100%',
+                '&:hover': { boxShadow: 3 },
+                transition: 'box-shadow 0.2s ease-in-out'
+              }}
+            >
+              <CardContent>
+                <Box display="flex" alignItems="center">
+                  <CheckCircle
+                    color="success"
+                    sx={{ fontSize: 40, mr: 2 }}
+                    aria-hidden="true"
+                  />
+                  <Box>
+                    <Typography
+                      variant="h4"
+                      fontWeight="bold"
+                      component="div"
+                      aria-label={`${stats?.job_stats.completed || 0} completed jobs`}
+                    >
+                      {stats?.job_stats.completed || 0}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Completed
+                    </Typography>
+                  </Box>
                 </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box display="flex" alignItems="center">
-                <Schedule color="info" sx={{ fontSize: 40, mr: 2 }} />
-                <Box>
-                  <Typography variant="h4" fontWeight="bold">
-                    {stats.job_stats.running}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Running
-                  </Typography>
+          <Grid item xs={12} sm={6} md={3}>
+            <Card
+              sx={{
+                height: '100%',
+                '&:hover': { boxShadow: 3 },
+                transition: 'box-shadow 0.2s ease-in-out'
+              }}
+            >
+              <CardContent>
+                <Box display="flex" alignItems="center">
+                  <Schedule
+                    color="info"
+                    sx={{ fontSize: 40, mr: 2 }}
+                    aria-hidden="true"
+                  />
+                  <Box>
+                    <Typography
+                      variant="h4"
+                      fontWeight="bold"
+                      component="div"
+                      aria-label={`${stats?.job_stats.running || 0} running jobs`}
+                    >
+                      {stats?.job_stats.running || 0}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Running
+                    </Typography>
+                  </Box>
                 </Box>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
 
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Box display="flex" alignItems="center">
-                <TrendingUp color="success" sx={{ fontSize: 40, mr: 2 }} />
-                <Box>
-                  <Typography variant="h4" fontWeight="bold">
-                    {stats.job_stats.success_rate.toFixed(1)}%
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Success Rate
-                  </Typography>
+          <Grid item xs={12} sm={6} md={3}>
+            <Card
+              sx={{
+                height: '100%',
+                '&:hover': { boxShadow: 3 },
+                transition: 'box-shadow 0.2s ease-in-out'
+              }}
+            >
+              <CardContent>
+                <Box display="flex" alignItems="center">
+                  <TrendingUp
+                    color="secondary"
+                    sx={{ fontSize: 40, mr: 2 }}
+                    aria-hidden="true"
+                  />
+                  <Box>
+                    <Typography
+                      variant="h4"
+                      fontWeight="bold"
+                      component="div"
+                      aria-label={`${(stats?.job_stats.success_rate || 0).toFixed(1)}% success rate`}
+                    >
+                      {(stats?.job_stats.success_rate || 0).toFixed(1)}%
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Success Rate
+                    </Typography>
+                  </Box>
                 </Box>
-              </Box>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </Grid>
         </Grid>
-      </Grid>
+      </FadeLoading>
 
       <Grid container spacing={3}>
         {/* Job Status Chart */}
@@ -252,7 +425,7 @@ const Dashboard: React.FC = () => {
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip />
+                      <RechartsTooltip />
                     </PieChart>
                   </ResponsiveContainer>
                 </Box>

@@ -35,9 +35,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     },
   });
 
-  // Add request interceptor for CSRF tokens (same as ApiContext)
+  // Add request interceptor for JWT token authentication
   authAxios.interceptors.request.use(
     (config) => {
+      // Add JWT token to Authorization header if available
+      const token = localStorage.getItem('access_token');
+      if (token) {
+        config.headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      // Add CSRF token if available
       const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.getAttribute('content');
       if (csrfToken) {
         config.headers['X-CSRFToken'] = csrfToken;
@@ -61,18 +68,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         timeout: 10000, // 10 second timeout
       });
       console.log('Auth check successful:', response.data);
-      setUser(response.data.user);
+      // API returns user object directly, not wrapped
+      setUser(response.data);
     } catch (error: any) {
       console.log('Auth check failed:', error.response?.status, error.message);
-      
+
       // Retry once if it's a network error and we haven't retried yet
       if (retryCount === 0 && (error.code === 'NETWORK_ERROR' || error.response?.status >= 500)) {
         console.log('Retrying auth check...');
         setTimeout(() => checkAuthStatus(1), 1000);
         return;
       }
-      
-      // User is not authenticated or other error
+
+      // User is not authenticated or other error - clear token
+      localStorage.removeItem('access_token');
       setUser(null);
     } finally {
       if (retryCount === 0) {
@@ -84,15 +93,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = async (username: string, password: string): Promise<void> => {
     try {
       console.log('Attempting login for:', username);
-      const response = await authAxios.post('/auth/login/', 
+      const response = await authAxios.post('/auth/login/',
         { username, password },
-        { 
+        {
           timeout: 15000, // 15 second timeout for login
         }
       );
       console.log('Login response:', response.data);
+
+      // Store JWT token in localStorage
+      if (response.data.access_token) {
+        localStorage.setItem('access_token', response.data.access_token);
+        console.log('JWT token stored successfully');
+      }
+
+      // Set user data
       setUser(response.data.user);
-      
+
       // Verify authentication by checking user info with the same axios instance
       try {
         await checkAuthStatus();
@@ -104,9 +121,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.error('Login error:', error);
       console.error('Login error response:', error.response?.data);
       console.error('Login error status:', error.response?.status);
-      
+
       let errorMessage = 'Login failed. Please try again.';
-      
+
       if (error.response?.status === 401) {
         errorMessage = 'Invalid username or password.';
       } else if (error.response?.status >= 500) {
@@ -116,7 +133,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } else if (error.response?.data?.error) {
         errorMessage = error.response.data.error;
       }
-      
+
       throw new Error(errorMessage);
     }
   };
@@ -124,7 +141,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const logout = async (): Promise<void> => {
     try {
       console.log('Attempting logout...');
-      await authAxios.post('/auth/logout/', {}, { 
+      await authAxios.post('/auth/logout/', {}, {
         timeout: 10000 // 10 second timeout
       });
       console.log('Logout successful');
@@ -132,6 +149,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.warn('Logout request failed, but clearing local state:', error);
       // Even if logout fails on server, clear local state
     } finally {
+      // Clear JWT token from localStorage
+      localStorage.removeItem('access_token');
       setUser(null);
     }
   };

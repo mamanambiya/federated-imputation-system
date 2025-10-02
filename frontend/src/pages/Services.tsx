@@ -48,17 +48,23 @@ import {
 import {
   CloudUpload,
   Speed,
-  Storage,
-  Group,
-  Sync,
+  Refresh,
   CheckCircle,
   Error,
+  Warning,
+  Info,
+  Timeline,
+  Storage,
+  Public,
+  Security,
+  Assessment,
+  Group,
+  Sync,
   LocationOn,
   Circle,
   Search,
   FilterList,
   Clear,
-  Info,
   CheckCircleOutline,
   WarningAmber,
   ExpandMore,
@@ -68,9 +74,11 @@ import {
   Tune,
   Language,
   Business,
-  Public,
+  Add,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import { useApi, ImputationService, ReferencePanel } from '../contexts/ApiContext';
+import ServiceManagement from '../components/ServiceManagement';
 
 const Services: React.FC = () => {
   const navigate = useNavigate();
@@ -98,6 +106,14 @@ const Services: React.FC = () => {
   const [activeFilterCount, setActiveFilterCount] = useState(0);
 
   // Feedback and notification state
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState<'success' | 'error' | 'warning' | 'info'>('info');
+
+  // Real-time monitoring state
+  const [lastHealthCheck, setLastHealthCheck] = useState<Date | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timeout | null>(null);
   const [snackbar, setSnackbar] = useState<{
     open: boolean;
     message: string;
@@ -109,8 +125,35 @@ const Services: React.FC = () => {
   });
   const [operationInProgress, setOperationInProgress] = useState<string | null>(null);
 
+  // Service Management Dialog
+  const [managementDialogOpen, setManagementDialogOpen] = useState(false);
+  const [editingService, setEditingService] = useState<ImputationService | null>(null);
+
   useEffect(() => {
     loadServices();
+  }, []);
+
+  // Auto-refresh effect
+  useEffect(() => {
+    if (autoRefresh) {
+      const interval = setInterval(() => {
+        checkAllServicesHealth();
+      }, 30000); // Check every 30 seconds
+      setRefreshInterval(interval);
+      return () => clearInterval(interval);
+    } else if (refreshInterval) {
+      clearInterval(refreshInterval);
+      setRefreshInterval(null);
+    }
+  }, [autoRefresh]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (refreshInterval) {
+        clearInterval(refreshInterval);
+      }
+    };
   }, []);
 
   // Helper function to extract location parts
@@ -336,11 +379,34 @@ const Services: React.FC = () => {
     setSnackbar(prev => ({ ...prev, open: false }));
   };
 
-  useEffect(() => {
-    if (services.length > 0) {
-      checkServicesHealth();
-    }
-  }, [services]);
+  // Service Management handlers
+  const handleCreateService = () => {
+    setEditingService(null);
+    setManagementDialogOpen(true);
+  };
+
+  const handleEditService = (service: ImputationService, event: React.MouseEvent) => {
+    event.stopPropagation();
+    setEditingService(service);
+    setManagementDialogOpen(true);
+  };
+
+  const handleManagementClose = () => {
+    setManagementDialogOpen(false);
+    setEditingService(null);
+  };
+
+  const handleServiceUpdated = () => {
+    loadServices();
+  };
+
+  // Removed auto-health check on mount to prevent blocking UI
+  // Users can manually trigger health checks using the "Check Status" button
+  // useEffect(() => {
+  //   if (services.length > 0) {
+  //     checkServicesHealth();
+  //   }
+  // }, [services]);
 
   const checkServicesHealth = async (forceCheck: boolean = false) => {
     const startTime = Date.now();
@@ -414,7 +480,8 @@ const Services: React.FC = () => {
       } catch (error) {
         console.error(`Health check failed for ${service.name}:`, error);
         // Check if this is a demo service
-        if (service.name.toLowerCase().includes('elwazi') || service.api_url.includes('elwazi') || service.api_url.includes('icermali')) {
+        const apiUrl = service.api_url || service.base_url || '';
+        if (service.name.toLowerCase().includes('elwazi') || apiUrl.includes('elwazi') || apiUrl.includes('icermali')) {
           healthStatus[service.id] = 'demo';
           healthyCount++; // Count demo services as healthy for reporting
         } else {
@@ -461,6 +528,17 @@ const Services: React.FC = () => {
       setServices(data);
       setError(null);
       showFeedback(`Successfully loaded ${data.length} imputation services`, 'success');
+
+      // Initialize health status for all services
+      const healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking' | 'demo'> = {};
+      data.forEach(service => {
+        healthStatus[service.id] = 'demo'; // Default to demo status
+      });
+      setServiceHealth(healthStatus);
+
+      // Perform initial health check after a short delay
+      setTimeout(() => checkAllServicesHealth(), 2000);
+
     } catch (err) {
       const errorMessage = 'Failed to load imputation services. Please check your connection and try again.';
       setError(errorMessage);
@@ -469,6 +547,67 @@ const Services: React.FC = () => {
     } finally {
       setLoading(false);
       setOperationInProgress(null);
+    }
+  };
+
+  // Health monitoring functions
+  const checkServiceHealth = async (service: ImputationService): Promise<'healthy' | 'unhealthy' | 'demo'> => {
+    try {
+      // For demo purposes, we'll simulate health checks
+      // In a real implementation, this would ping the actual service endpoints
+      const apiUrl = service.api_url || service.base_url;
+      if (!apiUrl) {
+        return 'demo'; // No URL to check
+      }
+
+      if (apiUrl.includes('demo') || apiUrl.includes('localhost')) {
+        return 'demo';
+      }
+
+      // Simulate network check with timeout
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'HEAD',
+          signal: controller.signal,
+          mode: 'no-cors' // For CORS-restricted endpoints
+        });
+        clearTimeout(timeoutId);
+        return 'healthy';
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        // For demo services or CORS-restricted endpoints, consider them healthy
+        if (service.name.toLowerCase().includes('demo') ||
+          service.description.toLowerCase().includes('demo')) {
+          return 'demo';
+        }
+        return 'unhealthy';
+      }
+    } catch (error) {
+      console.warn(`Health check failed for ${service.name}:`, error);
+      return 'demo'; // Default to demo for development
+    }
+  };
+
+  const checkAllServicesHealth = async () => {
+    setLastHealthCheck(new Date());
+
+    const healthPromises = services.map(async (service) => {
+      setServiceHealth(prev => ({ ...prev, [service.id]: 'checking' }));
+      const health = await checkServiceHealth(service);
+      setServiceHealth(prev => ({ ...prev, [service.id]: health }));
+      return { serviceId: service.id, health };
+    });
+
+    try {
+      await Promise.all(healthPromises);
+      showFeedback('Health check completed', 'success');
+    } catch (error) {
+      console.error('Health check error:', error);
+      showFeedback('Health check completed with some errors', 'warning');
     }
   };
 
@@ -682,6 +821,14 @@ const Services: React.FC = () => {
           </Typography>
         </Box>
         <Box display="flex" gap={1}>
+          <Button
+            variant="contained"
+            startIcon={<Add />}
+            onClick={handleCreateService}
+            color="primary"
+          >
+            Create Service
+          </Button>
           <Button
             variant="outlined"
             startIcon={<Sync />}
@@ -1300,15 +1447,23 @@ const Services: React.FC = () => {
               </CardContent>
 
               <CardActions onClick={(e) => e.stopPropagation()}>
-                <Button 
-                  size="small" 
+                <Button
+                  size="small"
                   onClick={() => navigate(`/services/${service.id}`)}
                   startIcon={<Storage />}
                 >
                   View Details
                 </Button>
-                <Button 
-                  size="small" 
+                <Button
+                  size="small"
+                  onClick={(e) => handleEditService(service, e)}
+                  startIcon={<EditIcon />}
+                  color="primary"
+                >
+                  Edit
+                </Button>
+                <Button
+                  size="small"
                   onClick={() => handleSyncPanels(service.id)}
                   disabled={syncing === service.id}
                   startIcon={syncing === service.id ? <CircularProgress size={16} /> : <Sync />}
@@ -1424,7 +1579,7 @@ const Services: React.FC = () => {
           onClose={closeFeedback}
           severity={snackbar.severity}
           variant="filled"
-          sx={{ 
+          sx={{
             width: '100%',
             '& .MuiAlert-message': {
               fontSize: '0.95rem',
@@ -1440,6 +1595,14 @@ const Services: React.FC = () => {
           {snackbar.message}
         </MuiAlert>
       </Snackbar>
+
+      {/* Service Management Dialog */}
+      <ServiceManagement
+        open={managementDialogOpen}
+        onClose={handleManagementClose}
+        onServiceUpdated={handleServiceUpdated}
+        editService={editingService}
+      />
     </Box>
   );
 };

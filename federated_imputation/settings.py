@@ -15,7 +15,8 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-dev-key-change-in-pro
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=True, cast=bool)
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0', 'web', '192.168.101.147', '154.114.10.123', '*']
+# Security: Restrict allowed hosts (remove '*' for production)
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,0.0.0.0,web').split(',')
 
 # Application definition
 DJANGO_APPS = [
@@ -30,6 +31,7 @@ DJANGO_APPS = [
 THIRD_PARTY_APPS = [
     'rest_framework',
     'corsheaders',
+    'drf_spectacular',
 ]
 
 LOCAL_APPS = [
@@ -39,14 +41,27 @@ LOCAL_APPS = [
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
+    # Security middleware (order matters)
+    'imputation.middleware.SecurityHeadersMiddleware',
+    'imputation.middleware.HealthCheckMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+
+    # Request processing
+    'imputation.middleware.RequestLoggingMiddleware',
+    'imputation.middleware.RateLimitMiddleware',
+    'imputation.middleware.APIVersioningMiddleware',
+
+    # Django core middleware
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+
+    # Audit logging (after authentication)
+    'imputation.middleware.AuditLoggingMiddleware',
 ]
 
 ROOT_URLCONF = 'federated_imputation.urls'
@@ -75,7 +90,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': config('DB_NAME', default='federated_imputation'),
         'USER': config('DB_USER', default='postgres'),
-        'PASSWORD': config('DB_PASSWORD', default='postgres'),
+        'PASSWORD': config('DB_PASSWORD', default='secure_db_password_2025'),
         'HOST': config('DB_HOST', default='localhost'),
         'PORT': config('DB_PORT', default='5432'),
         'OPTIONS': {
@@ -131,16 +146,53 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
-# CORS settings
-CORS_ALLOW_ALL_ORIGINS = DEBUG
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",  # React frontend
-    "http://127.0.0.1:3000",
-    "http://192.168.101.147:3000",  # React frontend on host IP
-    "http://154.114.10.123:3000",  # React frontend on actual server IP
-]
+# DRF Spectacular (OpenAPI/Swagger) Settings
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Federated Genomic Imputation Platform API',
+    'DESCRIPTION': '''
+    A comprehensive API for genomic imputation job management and service integration.
+
+    ## Features
+    - Multi-service imputation support (Michigan, H3Africa, GA4GH)
+    - Reference panel management
+    - Job submission and tracking
+    - User management with RBAC
+    - Audit logging
+
+    ## Authentication
+    This API uses session-based authentication. You can authenticate by:
+    1. Logging in via `/api/auth/login/`
+    2. Using session cookies for subsequent requests
+    ''',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SCHEMA_PATH_PREFIX': r'/api',
+    'SERVE_PERMISSIONS': ['rest_framework.permissions.AllowAny'],
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'persistAuthorization': True,
+        'displayOperationId': True,
+        'filter': True,
+    },
+    'TAGS': [
+        {'name': 'Authentication', 'description': 'User authentication and session management'},
+        {'name': 'Services', 'description': 'Imputation service management and discovery'},
+        {'name': 'Reference Panels', 'description': 'Reference panel information and syncing'},
+        {'name': 'Jobs', 'description': 'Imputation job submission and management'},
+        {'name': 'Users', 'description': 'User management and profiles'},
+        {'name': 'Permissions', 'description': 'Service permissions and roles'},
+        {'name': 'Dashboard', 'description': 'Statistics and monitoring'},
+        {'name': 'Audit', 'description': 'Audit logs and activity tracking'},
+    ],
+}
+
+# CORS settings - Enhanced security
+CORS_ALLOW_ALL_ORIGINS = False  # Never allow all origins in production
+CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='http://localhost:3000,http://127.0.0.1:3000', cast=str).split(',')
 CORS_ALLOW_CREDENTIALS = True
 
 # Additional CORS settings for better frontend compatibility
@@ -173,10 +225,40 @@ CSRF_TRUSTED_ORIGINS = [
     "http://154.114.10.123:3000",  # Server IP
 ]
 
-# Additional CSRF settings
-CSRF_COOKIE_SECURE = False  # Set to True with HTTPS in production
-CSRF_COOKIE_HTTPONLY = False  # Allow JavaScript access to CSRF token
+# Enhanced Security Settings
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
+
+# Session security
+SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=False, cast=bool)
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_AGE = config('SESSION_COOKIE_AGE', default=604800, cast=int)  # 1 week
+
+# CSRF protection
+CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=False, cast=bool)
+CSRF_COOKIE_HTTPONLY = False  # Must be False for frontend access
 CSRF_COOKIE_SAMESITE = 'Lax'
+
+# Password validation
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {
+            'min_length': 8,
+        }
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+]
 
 # Celery Configuration
 CELERY_BROKER_URL = config('REDIS_URL', default='redis://localhost:6379/0')

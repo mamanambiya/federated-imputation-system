@@ -7,25 +7,36 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
+    "test:unit": "react-scripts test --coverage --watchAll=false",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:chromium": "playwright test --project=chromium",
+    "test:report": "playwright show-report playwright-report",
+    "playwright:install": "playwright install --with-deps chromium",
     "eject": "react-scripts eject"
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-scripts": "5.0.1",
-    "react-router-dom": "^6.8.1",
-    "axios": "^1.3.4",
-    "@mui/material": "^5.11.10",
-    "@mui/icons-material": "^5.11.9",
     "@emotion/react": "^11.10.5",
     "@emotion/styled": "^11.10.5",
+    "@mui/icons-material": "^5.11.9",
     "@mui/lab": "^5.0.0-alpha.120",
+    "@mui/material": "^5.11.10",
     "@mui/x-data-grid": "^5.17.25",
+    "axios": "^1.3.4",
+    "date-fns": "^2.29.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "react-dropzone": "^14.2.3",
-    "recharts": "^2.5.0",
-    "date-fns": "^2.29.3"
+    "react-router-dom": "^6.8.1",
+    "react-scripts": "5.0.1",
+    "recharts": "^2.5.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.1",
+    "@testing-library/jest-dom": "^5.16.5",
+    "@testing-library/react": "^13.4.0",
+    "@testing-library/user-event": "^14.4.3",
     "@types/react": "^18.0.28",
     "@types/react-dom": "^18.0.11",
     "typescript": "^4.9.5"
@@ -42,4 +53,4 @@
       "last 1 safari version"
     ]
   }
-} 
+}

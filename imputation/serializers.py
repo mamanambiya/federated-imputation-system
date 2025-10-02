@@ -9,6 +9,7 @@ from .models import (
     ResultFile, UserServiceAccess, UserRole, UserProfile, ServicePermission,
     ServiceUserGroup, ServiceUserGroupMembership, AuditLog
 )
+from .job_management import JobTemplate, JobBatch, ScheduledJob
 
 
 class PermissionSerializer(serializers.ModelSerializer):
@@ -347,23 +348,140 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class ImputationServiceSerializer(serializers.ModelSerializer):
-    """Serializer for ImputationService model."""
-    
+    """Enhanced serializer for ImputationService model with comprehensive validation."""
+
     reference_panels_count = serializers.SerializerMethodField()
-    
+    health_status = serializers.SerializerMethodField()
+
     class Meta:
         model = ImputationService
         fields = [
             'id', 'name', 'service_type', 'api_type', 'api_url', 'description', 'location', 'continent',
             'is_active', 'api_key_required', 'max_file_size_mb',
-            'supported_formats', 'reference_panels_count', 'api_config', 
-            'created_at', 'updated_at'
+            'supported_formats', 'reference_panels_count', 'api_config',
+            'health_status', 'created_at', 'updated_at'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-    
+        read_only_fields = ['id', 'created_at', 'updated_at', 'reference_panels_count', 'health_status']
+
     def get_reference_panels_count(self, obj):
         """Get the count of active reference panels for this service."""
         return obj.reference_panels.filter(is_active=True).count()
+
+    def get_health_status(self, obj):
+        """Get cached health status for the service."""
+        try:
+            from .services.cache_service import health_cache
+            cache_info = health_cache.get_service_cache_info(obj.id)
+            if cache_info and 'status' in cache_info:
+                return cache_info['status']
+            return 'unknown'
+        except:
+            return 'unknown'
+
+    def validate_name(self, value):
+        """Validate service name."""
+        if not value or len(value.strip()) < 3:
+            raise serializers.ValidationError("Service name must be at least 3 characters long")
+
+        # Check for duplicate names (excluding current instance during updates)
+        queryset = ImputationService.objects.filter(name=value)
+        if self.instance:
+            queryset = queryset.exclude(id=self.instance.id)
+
+        if queryset.exists():
+            raise serializers.ValidationError("A service with this name already exists")
+
+        return value.strip()
+
+    def validate_api_url(self, value):
+        """Validate API URL format and accessibility."""
+        if not value:
+            raise serializers.ValidationError("API URL is required")
+
+        if not (value.startswith('http://') or value.startswith('https://')):
+            raise serializers.ValidationError("API URL must start with http:// or https://")
+
+        # Basic URL format validation
+        import re
+        url_pattern = re.compile(
+            r'^https?://'  # http:// or https://
+            r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
+            r'localhost|'  # localhost...
+            r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+            r'(?::\d+)?'  # optional port
+            r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+
+        if not url_pattern.match(value):
+            raise serializers.ValidationError("Invalid URL format")
+
+        return value
+
+    def validate_max_file_size_mb(self, value):
+        """Validate maximum file size."""
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Maximum file size must be greater than 0")
+
+        if value is not None and value > 10000:  # 10GB limit
+            raise serializers.ValidationError("Maximum file size cannot exceed 10GB (10000 MB)")
+
+        return value
+
+    def validate_supported_formats(self, value):
+        """Validate supported file formats."""
+        if not value:
+            return value
+
+        valid_formats = ['vcf', 'vcf.gz', 'plink', 'bed', 'bim', 'fam', 'bgen', 'gen', 'haps', 'legend', 'sample']
+
+        if isinstance(value, list):
+            for fmt in value:
+                if fmt not in valid_formats:
+                    raise serializers.ValidationError(f"Unsupported format: {fmt}. Valid formats: {', '.join(valid_formats)}")
+
+        return value
+
+    def validate_api_config(self, value):
+        """Validate API configuration JSON."""
+        if value is None:
+            return {}
+
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("API configuration must be a valid JSON object")
+
+        # Validate specific configuration keys if needed
+        if 'timeout' in value:
+            try:
+                timeout = int(value['timeout'])
+                if timeout <= 0 or timeout > 3600:
+                    raise serializers.ValidationError("Timeout must be between 1 and 3600 seconds")
+            except (ValueError, TypeError):
+                raise serializers.ValidationError("Timeout must be a valid integer")
+
+        return value
+
+    def validate(self, attrs):
+        """Cross-field validation."""
+        # Validate service_type and api_type compatibility
+        service_type = attrs.get('service_type', self.instance.service_type if self.instance else None)
+        api_type = attrs.get('api_type', self.instance.api_type if self.instance else None)
+
+        if service_type and api_type:
+            # Define valid combinations
+            valid_combinations = {
+                'h3africa': ['ga4gh', 'custom'],
+                'michigan': ['michigan', 'custom'],
+                'dnastack': ['dnastack', 'ga4gh'],
+                'custom': ['ga4gh', 'michigan', 'dnastack', 'custom']
+            }
+
+            if service_type in valid_combinations:
+                if api_type not in valid_combinations[service_type]:
+                    raise serializers.ValidationError(
+                        f"API type '{api_type}' is not compatible with service type '{service_type}'. "
+                        f"Valid API types: {', '.join(valid_combinations[service_type])}"
+                    )
+
+        return attrs
 
 
 class ReferencePanelSerializer(serializers.ModelSerializer):
@@ -629,4 +747,69 @@ class JobActionSerializer(serializers.Serializer):
                     f"Cannot retry job with status '{job.status}'"
                 )
         
-        return value 
+        return value
+
+
+# Advanced Job Management Serializers
+
+class JobTemplateSerializer(serializers.ModelSerializer):
+    """Serializer for job templates."""
+
+    service_name = serializers.CharField(source='service.name', read_only=True)
+    reference_panel_name = serializers.CharField(source='reference_panel.name', read_only=True)
+    user_display = serializers.CharField(source='user.username', read_only=True)
+
+    class Meta:
+        model = JobTemplate
+        fields = [
+            'id', 'name', 'description', 'user', 'user_display',
+            'service', 'service_name', 'reference_panel', 'reference_panel_name',
+            'input_format', 'build', 'phasing', 'population',
+            'is_public', 'usage_count', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'usage_count', 'created_at', 'updated_at']
+
+
+class JobBatchSerializer(serializers.ModelSerializer):
+    """Serializer for job batches."""
+
+    template_name = serializers.CharField(source='template.name', read_only=True)
+    user_display = serializers.CharField(source='user.username', read_only=True)
+    progress_percentage = serializers.ReadOnlyField()
+    success_rate = serializers.ReadOnlyField()
+
+    class Meta:
+        model = JobBatch
+        fields = [
+            'id', 'name', 'description', 'user', 'user_display',
+            'template', 'template_name', 'status',
+            'total_jobs', 'completed_jobs', 'failed_jobs',
+            'progress_percentage', 'success_rate',
+            'created_at', 'updated_at', 'started_at', 'completed_at'
+        ]
+        read_only_fields = [
+            'id', 'total_jobs', 'completed_jobs', 'failed_jobs',
+            'created_at', 'updated_at', 'started_at', 'completed_at'
+        ]
+
+
+class ScheduledJobSerializer(serializers.ModelSerializer):
+    """Serializer for scheduled jobs."""
+
+    template_name = serializers.CharField(source='template.name', read_only=True)
+    user_display = serializers.CharField(source='user.username', read_only=True)
+    schedule_type_display = serializers.CharField(source='get_schedule_type_display', read_only=True)
+
+    class Meta:
+        model = ScheduledJob
+        fields = [
+            'id', 'name', 'description', 'user', 'user_display',
+            'template', 'template_name', 'schedule_type', 'schedule_type_display',
+            'scheduled_time', 'recurrence_interval', 'max_executions',
+            'is_active', 'execution_count', 'last_execution', 'next_execution',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'id', 'execution_count', 'last_execution', 'next_execution',
+            'created_at', 'updated_at'
+        ]

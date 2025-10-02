@@ -75,5 +75,44 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log* 
-# Database backups
-backups/
+# Database backups (keep structure but ignore contents)
+backups/*.sql
+backups/*.sql.gz
+backups/*.tar.gz
+backups/*.txt
+!backups/README.md
+
+# Admin cookies and sensitive files
+admin_cookies.txt
+
+# Security monitoring logs
+/var/log/security_monitor.log
+/var/log/security_alerts.log
+/var/log/security_report_*.log
+
+# Development docs that might contain sensitive info
+dev_docs/troubleshooting/*.log
+dev_docs/maintenance/*.log
+
+# Docker volumes
+postgres_data/
+redis_data/
+
+# React build files
+/frontend/build/
+/frontend/dist/
+
+# Uploads directory
+uploads/
+
+# Local development overrides
+docker-compose.override.local.yml
+.env.override
+
+# Temporary files
+*.tmp
+*.temp
+
+# Additional security files
+*.p12
+*.pfx

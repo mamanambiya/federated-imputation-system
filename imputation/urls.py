@@ -30,6 +30,11 @@ api_patterns = [
     path('auth/login/', views.LoginView.as_view(), name='api_login'),
     path('auth/logout/', views.LogoutView.as_view(), name='api_logout'),
     path('auth/user/', views.UserInfoView.as_view(), name='api_user'),
+    path('auth/check/', views.UserInfoView.as_view(), name='api_auth_check'),
+    # Monitoring endpoints
+    path('monitoring/metrics/', views.SystemMetricsView.as_view(), name='system_metrics'),
+    path('monitoring/health/', views.HealthCheckView.as_view(), name='health_check'),
+    path('monitoring/dashboard/', views.MonitoringDashboardView.as_view(), name='monitoring_dashboard'),
     # Service-specific user management
     path('services/<int:service_pk>/permissions/', views.ServicePermissionViewSet.as_view({'get': 'list', 'post': 'create'}), name='service-permissions-list'),
     path('services/<int:service_pk>/permissions/<int:pk>/', views.ServicePermissionViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'}), name='service-permissions-detail'),

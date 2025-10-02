@@ -1,7 +1,10 @@
 #!/bin/bash
 
-# Post-Change Validation Script
-# This script should be run after any major changes to validate system stability
+# Post-Change Validation Script for Federated Genomic Imputation Platform
+# This script validates the system after changes to ensure everything is working correctly
+#
+# For comprehensive testing, use: ./dev_docs/scripts/run_comprehensive_tests.sh
+# For backup management, use: ./dev_docs/scripts/backup_system.sh
 
 echo "🧪 POST-CHANGE VALIDATION STARTED"
 echo "=================================="

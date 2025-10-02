@@ -1,0 +1,148 @@
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: '1450'
+services:
+  celery:
+    build:
+      context: /home/ubuntu/federated-imputation-central
+      dockerfile: Dockerfile
+    command: celery -A federated_imputation worker --loglevel=info
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_NAME: federated_imputation
+      DB_PASSWORD: postgres
+      DB_PORT: '5432'
+      DB_USER: postgres
+      DEBUG: '1'
+      H3AFRICA_API_KEY: demo_key
+      H3AFRICA_API_URL: https://h3africa.org/api/v1/
+      MICHIGAN_API_KEY: demo_key
+      MICHIGAN_API_URL: https://imputationserver.sph.umich.edu/api/v2/
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: django-insecure-dev-key-change-in-production
+    restart: unless-stopped
+    volumes:
+    - /home/ubuntu/federated-imputation-central:/app:rw
+  celery-beat:
+    build:
+      context: /home/ubuntu/federated-imputation-central
+      dockerfile: Dockerfile
+    command: celery -A federated_imputation beat --loglevel=info
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      DB_HOST: db
+      DB_NAME: federated_imputation
+      DB_PASSWORD: postgres
+      DB_PORT: '5432'
+      DB_USER: postgres
+      DEBUG: '1'
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: django-insecure-dev-key-change-in-production
+    restart: unless-stopped
+    volumes:
+    - /home/ubuntu/federated-imputation-central:/app:rw
+  db:
+    environment:
+      POSTGRES_DB: federated_imputation
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: postgres
+    healthcheck:
+      interval: 10s
+      retries: 5
+      start_period: 30s
+      test:
+      - CMD-SHELL
+      - pg_isready -U postgres -d federated_imputation
+      timeout: 5s
+    image: postgres:15
+    ports:
+    - published: 5432
+      target: 5432
+    restart: unless-stopped
+    volumes:
+    - /home/ubuntu/federated-imputation-central/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:rw
+    - postgres_data:/var/lib/postgresql/data:rw
+  frontend:
+    build:
+      context: /home/ubuntu/federated-imputation-central/frontend
+    environment:
+      REACT_APP_API_URL: http://154.114.10.123:8000
+    ports:
+    - published: 3000
+      target: 3000
+    restart: unless-stopped
+    volumes:
+    - /home/ubuntu/federated-imputation-central/frontend:/app:rw
+    - /app/node_modules
+  redis:
+    command: redis-server --appendonly yes
+    healthcheck:
+      interval: 10s
+      retries: 5
+      test:
+      - CMD
+      - redis-cli
+      - ping
+      timeout: 3s
+    image: redis:7-alpine
+    ports:
+    - published: 6379
+      target: 6379
+    restart: unless-stopped
+    volumes:
+    - redis_data:/data:rw
+  web:
+    build:
+      context: /home/ubuntu/federated-imputation-central
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ALLOWED_HOSTS: localhost,127.0.0.1,0.0.0.0
+      DB_HOST: db
+      DB_NAME: federated_imputation
+      DB_PASSWORD: postgres
+      DB_PORT: '5432'
+      DB_USER: postgres
+      DEBUG: '1'
+      H3AFRICA_API_KEY: demo_key
+      H3AFRICA_API_URL: https://h3africa.org/api/v1/
+      MICHIGAN_API_KEY: demo_key
+      MICHIGAN_API_URL: https://imputationserver.sph.umich.edu/api/v2/
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: django-insecure-dev-key-change-in-production
+    healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 40s
+      test:
+      - CMD
+      - curl
+      - -f
+      - http://localhost:8000/
+      timeout: 10s
+    ports:
+    - published: 8000
+      target: 8000
+    restart: unless-stopped
+    volumes:
+    - /home/ubuntu/federated-imputation-central:/app:rw
+    - media_volume:/app/media:rw
+    - static_volume:/app/static:rw
+version: '3.8'
+volumes:
+  media_volume: {}
+  postgres_data: {}
+  redis_data: {}
+  static_volume: {}
+

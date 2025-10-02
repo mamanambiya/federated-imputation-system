@@ -4,6 +4,8 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { CssBaseline, Box, CircularProgress } from '@mui/material';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ApiProvider } from './contexts/ApiContext';
+import { NotificationProvider } from './components/Common/NotificationSystem';
+import { SkipToMainContent, AccessibilityStatus } from './components/Common/AccessibilityHelpers';
 
 // Import all components
 import Navbar from './components/Layout/Navbar';
@@ -44,6 +46,31 @@ const theme = createTheme({
     },
     h6: {
       fontWeight: 600,
+    },
+  },
+  components: {
+    // Enhanced focus styles for accessibility
+    MuiButton: {
+      styleOverrides: {
+        root: {
+          '&:focus-visible': {
+            outline: '2px solid',
+            outlineColor: '#1976d2',
+            outlineOffset: '2px',
+          },
+        },
+      },
+    },
+    MuiIconButton: {
+      styleOverrides: {
+        root: {
+          '&:focus-visible': {
+            outline: '2px solid',
+            outlineColor: '#1976d2',
+            outlineOffset: '2px',
+          },
+        },
+      },
     },
   },
 });
@@ -140,11 +167,15 @@ function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      <SkipToMainContent />
       <AuthProvider>
         <ApiProvider>
-          <Router>
-            <AppContent />
-          </Router>
+          <NotificationProvider>
+            <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+              <AppContent />
+            </Router>
+            <AccessibilityStatus />
+          </NotificationProvider>
         </ApiProvider>
       </AuthProvider>
     </ThemeProvider>

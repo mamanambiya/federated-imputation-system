@@ -1,0 +1,56 @@
+# Docker Compose file to add missing microservices
+# Run with: docker-compose -f docker-compose.add-services.yml up -d
+
+version: '3.8'
+
+networks:
+  default:
+    external: true
+    name: federated-imputation-central_default
+
+services:
+  file-manager:
+    image: federated-imputation-file-manager:latest
+    container_name: file-manager
+    ports:
+      - "8004:8004"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/file_management_db
+      - STORAGE_PATH=/app/storage
+      - MAX_FILE_SIZE_MB=500
+    volumes:
+      - file_storage:/app/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  monitoring:
+    image: federated-imputation-monitoring:latest
+    container_name: monitoring
+    ports:
+      - "8006:8006"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/monitoring_db
+      - API_GATEWAY_URL=http://api-gateway:8000
+      - USER_SERVICE_URL=http://user-service:8001
+      - SERVICE_REGISTRY_URL=http://service-registry:8002
+      - JOB_PROCESSOR_URL=http://job-processor:8003
+      - FILE_MANAGER_URL=http://file-manager:8004
+      - NOTIFICATION_URL=http://notification:8005
+    depends_on:
+      - file-manager
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  file_storage:
+    driver: local

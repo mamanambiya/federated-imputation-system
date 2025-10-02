@@ -122,25 +122,39 @@ const ServiceDetail: React.FC = () => {
   }, [id]);
 
   const loadServiceDetails = async () => {
+    console.log('[ServiceDetail] Starting to load service details for ID:', id);
     try {
       setLoading(true);
       setError(null);
-      
+
+      console.log('[ServiceDetail] Fetching service data...');
       const serviceData = await getService(Number(id));
+      console.log('[ServiceDetail] Service data received:', serviceData.name);
       setService(serviceData);
-      
-      // Load panels
-      const panelsData = await getServiceReferencePanels(Number(id));
-      setPanels(panelsData);
-      
+
+      // Load panels (optional - may not exist in microservices architecture)
+      try {
+        console.log('[ServiceDetail] Fetching reference panels...');
+        const panelsData = await getServiceReferencePanels(Number(id));
+        console.log('[ServiceDetail] Reference panels received:', panelsData.length);
+        setPanels(panelsData);
+      } catch (panelError) {
+        console.log('[ServiceDetail] Reference panels not available for this service (expected)');
+        setPanels([]);
+      }
+
       // If it's a GA4GH service, extract service info from api_config
       if (serviceData.api_type === 'ga4gh' && serviceData.api_config?._service_info?.data) {
+        console.log('[ServiceDetail] Extracting GA4GH service info');
         setServiceInfo(serviceData.api_config._service_info.data);
       }
+
+      console.log('[ServiceDetail] Service details loaded successfully');
     } catch (err) {
+      console.error('[ServiceDetail] Error loading service:', err);
       setError('Failed to load service details');
-      console.error('Error loading service:', err);
     } finally {
+      console.log('[ServiceDetail] Setting loading to false');
       setLoading(false);
     }
   };
@@ -239,7 +253,7 @@ const ServiceDetail: React.FC = () => {
     );
   }
 
-  const workflowParams = serviceInfo?.default_workflow_engine_parameters 
+  const workflowParams = (serviceInfo?.default_workflow_engine_parameters && serviceInfo.default_workflow_engine_parameters.length > 0)
     ? extractWorkflowParams(serviceInfo.default_workflow_engine_parameters)
     : {};
 
@@ -307,21 +321,29 @@ const ServiceDetail: React.FC = () => {
               </Box>
 
               <List dense>
-                <ListItem>
-                  <ListItemText 
-                    primary="API URL"
-                    secondary={
-                      <Box display="flex" alignItems="center" gap={1}>
-                        <Typography variant="body2" component="span">
-                          {service.api_url}
-                        </Typography>
-                        <IconButton size="small" href={service.api_url} target="_blank">
-                          <LinkIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
-                    }
-                  />
-                </ListItem>
+                {(service.api_url || service.base_url) && (
+                  <ListItem>
+                    <ListItemText
+                      primary="API URL"
+                      secondary={
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <Typography variant="body2" component="span">
+                            {service.api_url || service.base_url}
+                          </Typography>
+                          <IconButton
+                            size="small"
+                            component="a"
+                            href={service.api_url || service.base_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <LinkIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      }
+                    />
+                  </ListItem>
+                )}
                 {service.location && (
                   <ListItem>
                     <ListItemIcon>
@@ -969,7 +991,7 @@ const ServiceDetail: React.FC = () => {
                   )}
 
                   {/* Workflow Parameters */}
-                  {serviceInfo.default_workflow_engine_parameters && serviceInfo.default_workflow_engine_parameters.length > 0 && (
+                  {serviceInfo?.default_workflow_engine_parameters && serviceInfo.default_workflow_engine_parameters.length > 0 && (
                     <Grid item xs={12}>
                       <Accordion>
                         <AccordionSummary expandIcon={<ExpandMore />}>
@@ -993,7 +1015,7 @@ const ServiceDetail: React.FC = () => {
                               </TableHead>
                               <TableBody>
                                 {serviceInfo.default_workflow_engine_parameters.map((param, idx) => {
-                                  const [engine, version, paramName] = param.name.split('|');
+                                  const [engine, version, paramName] = (param?.name || '').split('|');
                                   return (
                                     <TableRow key={idx} hover>
                                       <TableCell>

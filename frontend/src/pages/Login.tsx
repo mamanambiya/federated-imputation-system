@@ -54,18 +54,39 @@ const Login: React.FC = () => {
   // Redirect authenticated users away from login page
   useEffect(() => {
     if (isAuthenticated) {
+      console.log('User is authenticated, redirecting from login page');
       // Get the intended destination from location state, or default to dashboard
       const from = location.state?.from?.pathname || '/';
       const destinationName = from === '/' ? 'dashboard' : from.replace('/', '');
-      
+
+      console.log('Redirecting to:', from);
       showFeedback(`✅ Login successful! Redirecting to ${destinationName}...`, 'success');
-      
-      // Small delay to show the success message before redirect
-      setTimeout(() => {
-        navigate(from, { replace: true });
-      }, 1000);
+
+      // Immediate redirect - no delay
+      navigate(from, { replace: true });
     }
   }, [isAuthenticated, navigate, location.state]);
+
+  // If already authenticated, show loading state while redirecting
+  if (isAuthenticated) {
+    return (
+      <Container maxWidth="sm">
+        <Box
+          sx={{
+            marginTop: 8,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+          }}
+        >
+          <CircularProgress size={60} />
+          <Typography variant="h6" align="center" sx={{ mt: 2 }}>
+            Redirecting to dashboard...
+          </Typography>
+        </Box>
+      </Container>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -178,13 +199,7 @@ const Login: React.FC = () => {
               {loading ? 'Signing In...' : 'Sign In'}
             </Button>
 
-            <Grid container>
-              <Grid item xs>
-                <Typography variant="body2" color="text.secondary">
-                  Demo credentials: admin / admin123
-                </Typography>
-              </Grid>
-            </Grid>
+            {/* Demo credentials removed for security */}
           </Box>
         </Paper>
       </Box>
