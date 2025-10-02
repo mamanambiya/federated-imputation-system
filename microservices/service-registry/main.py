@@ -200,16 +200,37 @@ class ServiceHealthChecker:
     async def check_service_health(self, service: ImputationService) -> Dict[str, Any]:
         """Check health of a specific service."""
         start_time = datetime.utcnow()
-        
+
         try:
-            # Try to reach the service health endpoint
-            health_url = f"{service.base_url.rstrip('/')}/health"
-            response = await self.client.get(health_url)
-            
+            # Determine the appropriate health check URL based on service type
+            base_url = service.base_url.rstrip('/')
+
+            if service.api_type == 'michigan':
+                # Michigan Imputation Server - use /api/ endpoint
+                health_url = f"{base_url}/api/"
+            elif service.api_type == 'ga4gh':
+                # GA4GH services have a service-info endpoint
+                health_url = f"{base_url}/service-info"
+            elif service.api_type == 'dnastack':
+                # DNAstack - check root URL
+                health_url = base_url
+            else:
+                # Default: try /health endpoint
+                health_url = f"{base_url}/health"
+
+            response = await self.client.get(health_url, timeout=10.0)
+
             end_time = datetime.utcnow()
             response_time = (end_time - start_time).total_seconds() * 1000
-            
-            if response.status_code == 200:
+
+            # Michigan special case: HTTP 401 means API is online and functioning
+            if service.api_type == 'michigan' and response.status_code == 401:
+                return {
+                    "status": "healthy",
+                    "response_time_ms": response_time,
+                    "error_message": None
+                }
+            elif response.status_code in [200, 201, 202]:
                 return {
                     "status": "healthy",
                     "response_time_ms": response_time,

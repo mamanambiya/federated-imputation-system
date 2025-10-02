@@ -247,19 +247,32 @@ class ImputationServiceViewSet(viewsets.ModelViewSet):
         try:
             import requests
             from requests.exceptions import RequestException, Timeout, ConnectionError
-            
+
+            # Determine the base URL - handle both legacy api_url and new base_url fields
+            # Microservices use base_url, legacy Django uses api_url
+            base_url = service.base_url if hasattr(service, 'base_url') and service.base_url else service.api_url
+
+            if not base_url:
+                return {
+                    'service_id': service.id,
+                    'service_name': service.name,
+                    'status': 'unhealthy',
+                    'message': 'No API URL configured for this service',
+                    'error': 'MissingURL'
+                }
+
             # Determine the appropriate health check URL
-            test_url = service.api_url
-            
+            test_url = base_url
+
             if service.api_type == 'ga4gh':
                 # GA4GH WES services have a service-info endpoint
-                test_url = f"{service.api_url.rstrip('/')}/service-info"
+                test_url = f"{base_url.rstrip('/')}/service-info"
             elif service.api_type == 'michigan':
                 # Michigan Imputation Server - use API endpoint for proper API response
-                test_url = f"{service.api_url.rstrip('/')}/api/"
+                test_url = f"{base_url.rstrip('/')}/api/"
             elif service.api_type == 'dnastack':
-                # DNAstack services - test root URL  
-                test_url = service.api_url
+                # DNAstack services - test root URL
+                test_url = base_url
             
             # Suppress SSL warnings for demo services
             import urllib3
