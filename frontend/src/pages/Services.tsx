@@ -80,6 +80,50 @@ import {
 import { useApi, ImputationService, ReferencePanel } from '../contexts/ApiContext';
 import ServiceManagement from '../components/ServiceManagement';
 
+// Health check caching configuration
+const HEALTH_CHECK_CACHE_KEY = 'serviceHealthCache';
+const HEALTH_CHECK_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+interface HealthCheckCache {
+  timestamp: number;
+  healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking' | 'unknown'>;
+}
+
+// Helper functions for health check caching
+const getHealthCheckCache = (): HealthCheckCache | null => {
+  try {
+    const cached = localStorage.getItem(HEALTH_CHECK_CACHE_KEY);
+    if (!cached) return null;
+
+    const cache: HealthCheckCache = JSON.parse(cached);
+    const now = Date.now();
+
+    // Check if cache is still valid
+    if (now - cache.timestamp < HEALTH_CHECK_CACHE_DURATION) {
+      return cache;
+    }
+
+    // Cache expired, remove it
+    localStorage.removeItem(HEALTH_CHECK_CACHE_KEY);
+    return null;
+  } catch (error) {
+    console.error('Error reading health check cache:', error);
+    return null;
+  }
+};
+
+const setHealthCheckCache = (healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking' | 'unknown'>) => {
+  try {
+    const cache: HealthCheckCache = {
+      timestamp: Date.now(),
+      healthStatus
+    };
+    localStorage.setItem(HEALTH_CHECK_CACHE_KEY, JSON.stringify(cache));
+  } catch (error) {
+    console.error('Error saving health check cache:', error);
+  }
+};
+
 const Services: React.FC = () => {
   const navigate = useNavigate();
   const { getServices, getServiceReferencePanels, syncReferencePanels } = useApi();
@@ -484,8 +528,13 @@ const Services: React.FC = () => {
     }
     
     setServiceHealth({ ...healthStatus });
+
+    // Save health check results to cache
+    setHealthCheckCache(healthStatus);
+    console.log('Health check results saved to cache (valid for 5 minutes)');
+
     setOperationInProgress(null);
-    
+
     // Show comprehensive completion feedback with cache statistics
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
     const totalServices = services.length;
@@ -518,15 +567,26 @@ const Services: React.FC = () => {
       setError(null);
       showFeedback(`Successfully loaded ${data.length} imputation services`, 'success');
 
-      // Initialize health status for all services
-      const healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking' | 'unknown'> = {};
-      data.forEach(service => {
-        healthStatus[service.id] = 'checking'; // Default to checking status
-      });
-      setServiceHealth(healthStatus);
+      // Check if we have cached health status
+      const cachedHealth = getHealthCheckCache();
 
-      // Perform initial health check after a short delay
-      setTimeout(() => checkAllServicesHealth(), 2000);
+      if (cachedHealth) {
+        // Use cached health status
+        console.log('Using cached health check results (valid for 5 minutes)');
+        setServiceHealth(cachedHealth.healthStatus);
+        showFeedback('Loaded services with cached health status', 'success');
+      } else {
+        // No cache or cache expired - initialize with checking status
+        const healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking' | 'unknown'> = {};
+        data.forEach(service => {
+          healthStatus[service.id] = 'checking'; // Default to checking status
+        });
+        setServiceHealth(healthStatus);
+
+        // Perform initial health check after a short delay
+        console.log('No cached health status - performing health checks');
+        setTimeout(() => checkAllServicesHealth(), 2000);
+      }
 
     } catch (err) {
       const errorMessage = 'Failed to load imputation services. Please check your connection and try again.';
