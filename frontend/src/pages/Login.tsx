@@ -55,17 +55,17 @@ const Login: React.FC = () => {
   useEffect(() => {
     if (isAuthenticated) {
       console.log('User is authenticated, redirecting from login page');
-      // Get the intended destination from location state, or default to dashboard
-      const from = location.state?.from?.pathname || '/';
-      const destinationName = from === '/' ? 'dashboard' : from.replace('/', '');
+      // Always redirect to dashboard after successful login
+      // Ignore location.state?.from to avoid redirect loops
+      const destination = '/';
 
-      console.log('Redirecting to:', from);
-      showFeedback(`✅ Login successful! Redirecting to ${destinationName}...`, 'success');
+      console.log('Redirecting to dashboard');
+      showFeedback(`✅ Login successful! Redirecting to dashboard...`, 'success');
 
       // Immediate redirect - no delay
-      navigate(from, { replace: true });
+      navigate(destination, { replace: true });
     }
-  }, [isAuthenticated, navigate, location.state]);
+  }, [isAuthenticated, navigate]);
 
   // If already authenticated, show loading state while redirecting
   if (isAuthenticated) {
