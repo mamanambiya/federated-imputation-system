@@ -491,10 +491,11 @@ const Services: React.FC = () => {
           }
           
           // Update status
+          // Note: 'timeout' status from service registry is treated as 'unhealthy'
           if (status === 'healthy') {
             healthStatus[service.id] = 'healthy';
             healthyCount++;
-          } else if (status === 'unhealthy') {
+          } else if (status === 'unhealthy' || status === 'timeout') {
             healthStatus[service.id] = 'unhealthy';
             unhealthyCount++;
           } else {

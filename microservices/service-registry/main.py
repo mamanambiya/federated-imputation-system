@@ -11,7 +11,7 @@ from typing import List, Optional, Dict, Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, Float, JSON
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, Float, JSON, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
 from sqlalchemy.dialects.postgresql import UUID
@@ -67,9 +67,9 @@ class ImputationService(Base):
 
 class ReferencePanel(Base):
     __tablename__ = "reference_panels"
-    
+
     id = Column(Integer, primary_key=True, index=True)
-    service_id = Column(Integer, nullable=False, index=True)
+    service_id = Column(Integer, ForeignKey("imputation_services.id"), nullable=False, index=True)
     name = Column(String(200), nullable=False)
     display_name = Column(String(200))
     description = Column(Text)

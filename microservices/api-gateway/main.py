@@ -85,8 +85,12 @@ class RateLimiter:
     def __init__(self, redis_client: redis.Redis):
         self.redis = redis_client
     
-    async def is_allowed(self, key: str, limit: int = 100, window: int = 3600) -> tuple[bool, RateLimitInfo]:
-        """Check if request is within rate limit."""
+    async def is_allowed(self, key: str, limit: int = 1000, window: int = 3600) -> tuple[bool, RateLimitInfo]:
+        """Check if request is within rate limit.
+
+        Development setting: 1000 requests per hour to avoid lockouts during testing.
+        Production should use lower limits (e.g., 100-200).
+        """
         try:
             current = self.redis.get(key)
             if current is None:
@@ -139,7 +143,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 # Service proxy
 class ServiceProxy:
     def __init__(self):
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self.client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
     
     async def forward_request(
         self,
@@ -158,8 +162,9 @@ class ServiceProxy:
         service_url = SERVICES[service_name]
         url = f"{service_url}{path}"
         
-        # Remove host header to avoid conflicts
-        headers = {k: v for k, v in headers.items() if k.lower() != 'host'}
+        # Remove problematic headers that cause conflicts
+        headers_to_remove = {'host', 'content-length', 'transfer-encoding'}
+        headers = {k: v for k, v in headers.items() if k.lower() not in headers_to_remove}
         
         try:
             response = await self.client.request(
@@ -319,11 +324,14 @@ async def proxy_to_service(
         files=files
     )
     
-    # Return response
+    # Return response (remove content-length to avoid conflicts)
+    response_headers = {k: v for k, v in dict(response.headers).items()
+                       if k.lower() not in {'content-length', 'transfer-encoding'}}
+
     return JSONResponse(
         status_code=response.status_code,
         content=response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text,
-        headers=dict(response.headers)
+        headers=response_headers
     )
 
 if __name__ == "__main__":
