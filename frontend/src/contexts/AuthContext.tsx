@@ -93,10 +93,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = async (username: string, password: string): Promise<void> => {
     try {
       console.log('Attempting login for:', username);
+      console.log('API Base URL:', API_BASE_URL);
       const response = await authAxios.post('/auth/login/',
         { username, password },
         {
-          timeout: 15000, // 15 second timeout for login
+          timeout: 30000, // 30 second timeout for login (increased for network reliability)
         }
       );
       console.log('Login response:', response.data);
@@ -118,9 +119,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Don't throw error here, the login was successful
       }
     } catch (error: any) {
-      console.error('Login error:', error);
-      console.error('Login error response:', error.response?.data);
-      console.error('Login error status:', error.response?.status);
+      // Enhanced error logging for debugging
+      console.error('=== LOGIN ERROR DETAILS ===');
+      console.error('Error object:', error);
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
+      console.error('Error response:', error.response);
+      console.error('Error response data:', error.response?.data);
+      console.error('Error response status:', error.response?.status);
+      console.error('Error response headers:', error.response?.headers);
+      console.error('Error config:', error.config);
+      console.error('Is axios error:', error.isAxiosError);
+      console.error('========================');
 
       let errorMessage = 'Login failed. Please try again.';
 
@@ -128,10 +138,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         errorMessage = 'Invalid username or password.';
       } else if (error.response?.status >= 500) {
         errorMessage = 'Server error. Please try again in a moment.';
-      } else if (error.code === 'NETWORK_ERROR' || error.message.includes('Network Error')) {
-        errorMessage = 'Network connection error. Please check your internet connection.';
+      } else if (error.code === 'NETWORK_ERROR' || error.code === 'ECONNABORTED' || error.message.includes('Network Error')) {
+        // Provide more detailed network error message
+        errorMessage = `Network connection error. Please check your internet connection. (Error: ${error.code || error.message})`;
+        console.error('Network error details - This might be CORS, timeout, or DNS issue');
       } else if (error.response?.data?.error) {
         errorMessage = error.response.data.error;
+      } else if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail;
       }
 
       throw new Error(errorMessage);
