@@ -479,7 +479,7 @@ async def list_reference_panels(
 ):
     """List reference panels with optional filtering."""
     query = db.query(ReferencePanel)
-    
+
     if service_id:
         query = query.filter(ReferencePanel.service_id == service_id)
     if build:
@@ -488,9 +488,9 @@ async def list_reference_panels(
         query = query.filter(ReferencePanel.population == population)
     if is_available is not None:
         query = query.filter(ReferencePanel.is_available == is_available)
-    
+
     panels = query.all()
-    
+
     return [
         ReferencePanelResponse(
             id=panel.id,
@@ -510,6 +510,37 @@ async def list_reference_panels(
         )
         for panel in panels
     ]
+
+@app.post("/services/{service_id}/sync_reference_panels")
+async def sync_reference_panels(service_id: int, db: Session = Depends(get_db)):
+    """
+    Sync reference panels for a specific service.
+
+    Note: Most imputation services (Michigan, GA4GH) do not provide programmatic
+    APIs to list reference panels. This endpoint exists for future enhancement
+    when services expose panel listing APIs.
+
+    For now, reference panels must be manually added via the admin interface.
+    """
+    service = db.query(ImputationService).filter(ImputationService.id == service_id).first()
+
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+
+    # Check existing panels
+    existing_panels = db.query(ReferencePanel).filter(ReferencePanel.service_id == service_id).count()
+
+    return {
+        "status": "not_supported",
+        "message": f"Reference panel sync is not yet implemented for {service.api_type} services. "
+                   f"Most imputation services do not expose programmatic APIs to list panels. "
+                   f"Please add reference panels manually via the admin interface.",
+        "service_id": service_id,
+        "service_name": service.name,
+        "service_type": service.api_type,
+        "existing_panels": existing_panels,
+        "suggestion": "Reference panels can be added manually through the database or admin interface."
+    }
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8002, reload=True)
