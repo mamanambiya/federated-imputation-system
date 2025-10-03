@@ -83,8 +83,10 @@ import ServiceManagement from '../components/ServiceManagement';
 // Health check caching configuration
 const HEALTH_CHECK_CACHE_KEY = 'serviceHealthCache';
 const HEALTH_CHECK_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+const HEALTH_CHECK_CACHE_VERSION = 2; // Increment this to invalidate old caches
 
 interface HealthCheckCache {
+  version: number;
   timestamp: number;
   healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking' | 'unknown'>;
 }
@@ -97,6 +99,13 @@ const getHealthCheckCache = (): HealthCheckCache | null => {
 
     const cache: HealthCheckCache = JSON.parse(cached);
     const now = Date.now();
+
+    // Check cache version - invalidate if old version
+    if (!cache.version || cache.version !== HEALTH_CHECK_CACHE_VERSION) {
+      console.log(`Cache version mismatch (cached: ${cache.version}, current: ${HEALTH_CHECK_CACHE_VERSION}), invalidating cache`);
+      localStorage.removeItem(HEALTH_CHECK_CACHE_KEY);
+      return null;
+    }
 
     // Check if cache is still valid
     if (now - cache.timestamp < HEALTH_CHECK_CACHE_DURATION) {
@@ -115,6 +124,7 @@ const getHealthCheckCache = (): HealthCheckCache | null => {
 const setHealthCheckCache = (healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking' | 'unknown'>) => {
   try {
     const cache: HealthCheckCache = {
+      version: HEALTH_CHECK_CACHE_VERSION,
       timestamp: Date.now(),
       healthStatus
     };
@@ -448,17 +458,19 @@ const Services: React.FC = () => {
   //   }
   // }, [services]);
 
-  const checkServicesHealth = async (forceCheck: boolean = false) => {
+  const checkServicesHealth = async (forceCheck: boolean = false, servicesToCheck?: ImputationService[]) => {
+    // Use provided services or fall back to state
+    const servicesList = servicesToCheck || services;
     const startTime = Date.now();
     const healthStatus: Record<number, 'healthy' | 'unhealthy' | 'checking' | 'unknown'> = {};
-    
+
     // Show operation start feedback
     setOperationInProgress('Checking service health...');
     const actionText = forceCheck ? 'force checking' : 'checking';
-    showFeedback(`Starting ${actionText} for ${services.length} services...`, 'info');
-    
+    showFeedback(`Starting ${actionText} for ${servicesList.length} services...`, 'info');
+
     // Set all services to checking status initially
-    services.forEach(service => {
+    servicesList.forEach(service => {
       healthStatus[service.id] = 'checking';
     });
     setServiceHealth(healthStatus);
@@ -470,9 +482,9 @@ const Services: React.FC = () => {
     let freshCount = 0;
 
     // Check each service health using backend health check API
-    for (const service of services) {
+    for (const service of servicesList) {
       try {
-        setOperationInProgress(`Checking ${service.name}... (${checkedCount + 1}/${services.length})`);
+        setOperationInProgress(`Checking ${service.name}... (${checkedCount + 1}/${servicesList.length})`);
         
         const url = `${process.env.REACT_APP_API_URL}/api/services/${service.id}/health/${forceCheck ? '?force=true' : ''}`;
         const response = await fetch(url, {
@@ -538,7 +550,7 @@ const Services: React.FC = () => {
 
     // Show comprehensive completion feedback with cache statistics
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-    const totalServices = services.length;
+    const totalServices = servicesList.length;
     const cacheInfo = cachedCount > 0 ? ` (${cachedCount} from cache, ${freshCount} fresh)` : ` (all fresh)`;
     
     if (unhealthyCount === 0) {
@@ -585,8 +597,9 @@ const Services: React.FC = () => {
         setServiceHealth(healthStatus);
 
         // Perform initial health check after a short delay
+        // Pass data directly to avoid React state closure issues
         console.log('No cached health status - performing health checks');
-        setTimeout(() => checkServicesHealth(), 2000);
+        setTimeout(() => checkServicesHealth(false, data), 2000);
       }
 
     } catch (err) {
