@@ -68,6 +68,11 @@ htmlcov/
 coverage.xml
 *.cover
 
+# Playwright
+/frontend/test-results/
+/frontend/playwright-report/
+/frontend/e2e/.auth/
+
 # Misc
 *.bak
 .cache

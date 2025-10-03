@@ -14,6 +14,10 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './e2e',
 
+  // Global setup runs once before all tests
+  // Performs authentication and saves state to .auth/user.json
+  globalSetup: './e2e/global-setup.ts',
+
   // Maximum time one test can run
   timeout: 30 * 1000,
 

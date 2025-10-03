@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures/auth';
 
 /**
  * Services Page Health Check Caching Tests
@@ -12,15 +12,18 @@ import { test, expect } from '@playwright/test';
  * 3. Page reload within 5 minutes uses cached data (no API calls)
  * 4. Cache expires after 5 minutes
  * 5. Manual "Check Health" bypasses cache
+ *
+ * Note: Tests use the auth fixture which provides an already-authenticated
+ * session. Authentication is performed once in global-setup.ts and reused
+ * across all tests for better performance.
  */
 
 test.describe('Services Page Health Check Caching', () => {
 
   test.beforeEach(async ({ page }) => {
-    // Navigate to services page
-    await page.goto('/services');
-
     // Clear health check cache to ensure clean state
+    // (auth state is preserved from global setup)
+    await page.goto('/services');
     await page.evaluate(() => {
       localStorage.removeItem('serviceHealthCache');
     });

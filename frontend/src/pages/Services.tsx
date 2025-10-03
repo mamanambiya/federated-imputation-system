@@ -585,7 +585,7 @@ const Services: React.FC = () => {
 
         // Perform initial health check after a short delay
         console.log('No cached health status - performing health checks');
-        setTimeout(() => checkAllServicesHealth(), 2000);
+        setTimeout(() => checkServicesHealth(), 2000);
       }
 
     } catch (err) {
