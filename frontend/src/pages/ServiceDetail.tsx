@@ -64,8 +64,10 @@ import {
   Biotech,
   DeviceHub,
   LocalOffer,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import { useApi, ImputationService, ReferencePanel } from '../contexts/ApiContext';
+import ServiceManagement from '../components/ServiceManagement';
 
 interface ServiceInfo {
   supported_wes_versions?: string[];
@@ -114,6 +116,7 @@ const ServiceDetail: React.FC = () => {
   const [syncing, setSyncing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -180,6 +183,19 @@ const ServiceDetail: React.FC = () => {
     } finally {
       setRefreshing(false);
     }
+  };
+
+  const handleEditService = () => {
+    setEditDialogOpen(true);
+  };
+
+  const handleEditClose = () => {
+    setEditDialogOpen(false);
+  };
+
+  const handleServiceUpdated = async () => {
+    setEditDialogOpen(false);
+    await loadServiceDetails(); // Refresh service details after update
   };
 
   const getServiceIcon = (serviceType: string) => {
@@ -277,8 +293,8 @@ const ServiceDetail: React.FC = () => {
               label={service.api_type?.toUpperCase() || 'API'} 
               variant="outlined"
             />
-            <Chip 
-              label={service.is_active ? 'Active' : 'Inactive'} 
+            <Chip
+              label={service.is_active ? 'Online' : 'Offline'}
               color={service.is_active ? 'success' : 'default'}
               size="small"
             />
@@ -290,6 +306,13 @@ const ServiceDetail: React.FC = () => {
               {refreshing ? <CircularProgress size={24} /> : <Refresh />}
             </IconButton>
           </Tooltip>
+          <Button
+            variant="outlined"
+            startIcon={<EditIcon />}
+            onClick={handleEditService}
+          >
+            Edit Service
+          </Button>
           <Button
             variant="contained"
             startIcon={syncing ? <CircularProgress size={20} /> : <Sync />}
@@ -791,7 +814,7 @@ const ServiceDetail: React.FC = () => {
                   <Grid item>
                     <Chip
                       icon={service.is_active ? <CheckCircle /> : <Error />}
-                      label={service.is_active ? 'Service Active' : 'Service Inactive'}
+                      label={service.is_active ? 'Service Online' : 'Service Offline'}
                       color={service.is_active ? 'success' : 'error'}
                       size="small"
                     />
@@ -1164,6 +1187,16 @@ const ServiceDetail: React.FC = () => {
           </Card>
         </Grid>
       </Grid>
+
+      {/* Service Management Dialog */}
+      {service && (
+        <ServiceManagement
+          open={editDialogOpen}
+          onClose={handleEditClose}
+          onServiceUpdated={handleServiceUpdated}
+          editService={service}
+        />
+      )}
     </Box>
   );
 };

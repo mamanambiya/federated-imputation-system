@@ -15,10 +15,23 @@ A web-based platform for connecting to multiple genomic imputation services, all
 
 ## Architecture
 
-- **Backend**: Django REST Framework with PostgreSQL database
+### Hybrid Django + FastAPI System
+
+- **Backend**:
+  - Django REST Framework (admin interface, user auth, main app)
+  - FastAPI microservices (async health monitoring, high-performance APIs)
+- **Database**: 7 PostgreSQL databases (database-per-service pattern)
 - **Frontend**: React with TypeScript and Material-UI
 - **Task Queue**: Celery with Redis for async job processing
-- **Containerization**: Docker and Docker Compose for easy deployment
+- **Deployment**: Docker Compose with 7 microservices
+
+**Why both Django and FastAPI?**
+- Django: Rich admin interface, complex ORM, user authentication
+- FastAPI: 10x faster async operations, native concurrency for health checks
+- Memory efficient: 75% less RAM than all-Django (300 MB vs 1.2 GB)
+
+📖 **[Architecture Deep Dive](./dev_docs/architecture/ARCHITECTURE_CONTEXT.md)** - Quick reference guide
+📖 **[Complete Architecture Doc](./dev_docs/architecture/DJANGO_FASTAPI_ARCHITECTURE.md)** - Full technical details
 
 ## Documentation
 

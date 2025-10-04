@@ -32,6 +32,9 @@ import {
   Close,
   Save,
   CloudUpload,
+  Visibility,
+  VisibilityOff,
+  VpnKey,
 } from '@mui/icons-material';
 import { useApi, ImputationService } from '../contexts/ApiContext';
 
@@ -54,6 +57,14 @@ interface ServiceFormData {
   max_file_size_mb: number;
   supported_formats: string[];
   supported_builds: string[];
+  api_config: {
+    api_key?: string;
+    api_token?: string;
+    oauth_client_id?: string;
+    oauth_client_secret?: string;
+    custom_headers?: Record<string, string>;
+    timeout_seconds?: number;
+  };
   is_active: boolean;
 }
 
@@ -82,12 +93,18 @@ const ServiceManagement: React.FC<ServiceManagementProps> = ({
     max_file_size_mb: editService?.max_file_size_mb || 100,
     supported_formats: editService?.supported_formats || ['vcf', 'vcf.gz'],
     supported_builds: editService?.supported_builds || ['hg19', 'hg38'],
+    api_config: editService?.api_config || {},
     is_active: editService?.is_active ?? true,
   });
 
   // Format tags input
   const [formatInput, setFormatInput] = useState('');
   const [buildInput, setBuildInput] = useState('');
+
+  // Password visibility toggles
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [showApiToken, setShowApiToken] = useState(false);
+  const [showClientSecret, setShowClientSecret] = useState(false);
 
   // Reset form when dialog opens/closes or edit service changes
   React.useEffect(() => {
@@ -104,6 +121,7 @@ const ServiceManagement: React.FC<ServiceManagementProps> = ({
         max_file_size_mb: editService.max_file_size_mb || 100,
         supported_formats: editService.supported_formats || ['vcf', 'vcf.gz'],
         supported_builds: editService.supported_builds || ['hg19', 'hg38'],
+        api_config: editService.api_config || {},
         is_active: editService.is_active ?? true,
       });
     } else {
@@ -119,6 +137,7 @@ const ServiceManagement: React.FC<ServiceManagementProps> = ({
         max_file_size_mb: 100,
         supported_formats: ['vcf', 'vcf.gz'],
         supported_builds: ['hg19', 'hg38'],
+        api_config: {},
         is_active: true,
       });
     }
@@ -289,6 +308,7 @@ const ServiceManagement: React.FC<ServiceManagementProps> = ({
           <Tab label="Basic Info" />
           <Tab label="Configuration" />
           <Tab label="Capabilities" />
+          <Tab label="Connection" />
         </Tabs>
 
         {/* Tab 0: Basic Info */}
@@ -498,6 +518,160 @@ const ServiceManagement: React.FC<ServiceManagementProps> = ({
                 <Button variant="outlined" onClick={handleAddBuild}>
                   Add
                 </Button>
+              </Box>
+            </Grid>
+          </Grid>
+        )}
+
+        {/* Tab 3: Connection Parameters */}
+        {currentTab === 3 && (
+          <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <Typography variant="body2">
+                  <VpnKey sx={{ verticalAlign: 'middle', mr: 0.5, fontSize: 16 }} />
+                  Connection parameters are stored securely. Leave fields blank to keep existing values.
+                </Typography>
+              </Alert>
+            </Grid>
+
+            {formData.auth_type === 'token' && (
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="API Token"
+                  type={showApiToken ? 'text' : 'password'}
+                  value={formData.api_config?.api_token || ''}
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev,
+                    api_config: { ...prev.api_config, api_token: e.target.value }
+                  }))}
+                  placeholder="Enter API token (leave blank to keep existing)"
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          onClick={() => setShowApiToken(!showApiToken)}
+                          edge="end"
+                        >
+                          {showApiToken ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+            )}
+
+            {formData.auth_type === 'api_key' && (
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="API Key"
+                  type={showApiKey ? 'text' : 'password'}
+                  value={formData.api_config?.api_key || ''}
+                  onChange={(e) => setFormData(prev => ({
+                    ...prev,
+                    api_config: { ...prev.api_config, api_key: e.target.value }
+                  }))}
+                  placeholder="Enter API key (leave blank to keep existing)"
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          onClick={() => setShowApiKey(!showApiKey)}
+                          edge="end"
+                        >
+                          {showApiKey ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+            )}
+
+            {formData.auth_type === 'oauth2' && (
+              <>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="OAuth Client ID"
+                    value={formData.api_config?.oauth_client_id || ''}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      api_config: { ...prev.api_config, oauth_client_id: e.target.value }
+                    }))}
+                    placeholder="Enter OAuth client ID"
+                  />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <TextField
+                    fullWidth
+                    label="OAuth Client Secret"
+                    type={showClientSecret ? 'text' : 'password'}
+                    value={formData.api_config?.oauth_client_secret || ''}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      api_config: { ...prev.api_config, oauth_client_secret: e.target.value }
+                    }))}
+                    placeholder="Enter OAuth client secret"
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            onClick={() => setShowClientSecret(!showClientSecret)}
+                            edge="end"
+                          >
+                            {showClientSecret ? <VisibilityOff /> : <Visibility />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                </Grid>
+              </>
+            )}
+
+            <Grid item xs={12}>
+              <Divider />
+            </Grid>
+
+            <Grid item xs={12} md={6}>
+              <TextField
+                fullWidth
+                type="number"
+                label="Timeout (seconds)"
+                value={formData.api_config?.timeout_seconds || 30}
+                onChange={(e) => setFormData(prev => ({
+                  ...prev,
+                  api_config: { ...prev.api_config, timeout_seconds: Number(e.target.value) }
+                }))}
+                InputProps={{
+                  endAdornment: <InputAdornment position="end">seconds</InputAdornment>,
+                }}
+                inputProps={{ min: 1, max: 300 }}
+                helperText="Connection timeout (1-300 seconds)"
+              />
+            </Grid>
+
+            <Grid item xs={12}>
+              <Typography variant="subtitle2" gutterBottom>
+                Connection Status
+              </Typography>
+              <Box display="flex" gap={1} alignItems="center">
+                <Chip
+                  label={formData.is_active ? 'Service Active' : 'Service Inactive'}
+                  color={formData.is_active ? 'success' : 'default'}
+                  size="small"
+                />
+                {formData.requires_auth && (
+                  <Chip
+                    label={`Auth: ${formData.auth_type?.toUpperCase()}`}
+                    size="small"
+                    variant="outlined"
+                  />
+                )}
               </Box>
             </Grid>
           </Grid>

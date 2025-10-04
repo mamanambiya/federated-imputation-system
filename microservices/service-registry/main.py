@@ -49,6 +49,7 @@ class ImputationService(Base):
     max_file_size_mb = Column(Integer, default=100)
     supported_formats = Column(JSON, default=list)  # ['vcf', 'plink', 'bgen']
     supported_builds = Column(JSON, default=list)  # ['hg19', 'hg38']
+    api_config = Column(JSON, default=dict)  # Stores connection parameters (API keys, tokens, headers)
     
     # Service status
     is_active = Column(Boolean, default=True)
@@ -57,6 +58,7 @@ class ImputationService(Base):
     health_status = Column(String(20), default='unknown')  # healthy, unhealthy, unknown
     response_time_ms = Column(Float)
     error_message = Column(Text)
+    first_unhealthy_at = Column(DateTime)  # Track when service first became unhealthy for auto-deactivation
     
     # Metadata
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -133,6 +135,23 @@ class ServiceCreate(BaseModel):
     max_file_size_mb: int = 100
     supported_formats: List[str] = []
     supported_builds: List[str] = []
+    api_config: Optional[Dict[str, Any]] = {}
+
+class ServiceUpdate(BaseModel):
+    """Model for partial service updates (PATCH)"""
+    name: Optional[str] = None
+    service_type: Optional[str] = None
+    api_type: Optional[str] = None
+    base_url: Optional[HttpUrl] = None
+    description: Optional[str] = None
+    version: Optional[str] = None
+    requires_auth: Optional[bool] = None
+    auth_type: Optional[str] = None
+    max_file_size_mb: Optional[int] = None
+    supported_formats: Optional[List[str]] = None
+    supported_builds: Optional[List[str]] = None
+    api_config: Optional[Dict[str, Any]] = None
+    is_active: Optional[bool] = None
 
 class ServiceResponse(BaseModel):
     id: int
@@ -147,6 +166,7 @@ class ServiceResponse(BaseModel):
     max_file_size_mb: int
     supported_formats: List[str]
     supported_builds: List[str]
+    api_config: Optional[Dict[str, Any]]
     is_active: bool
     is_available: bool
     last_health_check: Optional[datetime]
@@ -195,7 +215,18 @@ class HealthCheckResponse(BaseModel):
 # Service health checker
 class ServiceHealthChecker:
     def __init__(self):
-        self.client = httpx.AsyncClient(timeout=10.0)
+        # Configure separate timeouts for different operations
+        # connect=30s: TLS handshake can be slow from Docker containers
+        # read=10s: Actual response should be quick
+        self.client = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                connect=30.0,  # 30 seconds for TLS handshake (Michigan needs this)
+                read=10.0,     # 10 seconds for response
+                write=10.0,    # 10 seconds for uploads
+                pool=10.0      # 10 seconds for connection pool
+            ),
+            verify=True  # Explicit SSL verification
+        )
     
     async def check_service_health(self, service: ImputationService) -> Dict[str, Any]:
         """Check health of a specific service."""
@@ -218,7 +249,8 @@ class ServiceHealthChecker:
                 # Default: try /health endpoint
                 health_url = f"{base_url}/health"
 
-            response = await self.client.get(health_url, timeout=10.0)
+            # Use client-level timeout configuration (30s connect, 10s read)
+            response = await self.client.get(health_url)
 
             end_time = datetime.utcnow()
             response_time = (end_time - start_time).total_seconds() * 1000
@@ -257,19 +289,54 @@ class ServiceHealthChecker:
             }
     
     async def check_all_services(self, db: Session):
-        """Check health of all active services."""
+        """Check health of all active services and auto-deactivate if offline >30 days."""
         services = db.query(ImputationService).filter(ImputationService.is_active == True).all()
-        
+
         for service in services:
             health_result = await self.check_service_health(service)
-            
+
             # Update service health status
             service.health_status = health_result["status"]
             service.response_time_ms = health_result["response_time_ms"]
             service.error_message = health_result["error_message"]
             service.last_health_check = datetime.utcnow()
-            service.is_available = health_result["status"] == "healthy"
-            
+
+            # Auto-deactivation logic: track offline duration and deactivate if >30 days
+            if health_result["status"] in ["unhealthy", "timeout"]:
+                # Track when service first became unhealthy
+                if not service.first_unhealthy_at:
+                    service.first_unhealthy_at = datetime.utcnow()
+                    logger.warning(f"Service '{service.name}' (ID: {service.id}) became unhealthy")
+
+                # Check if unhealthy for more than 30 days
+                days_unhealthy = (datetime.utcnow() - service.first_unhealthy_at).days
+                if days_unhealthy >= 30:
+                    service.is_active = False
+                    service.is_available = False
+                    logger.error(
+                        f"AUTO-DEACTIVATED service '{service.name}' (ID: {service.id}) "
+                        f"after {days_unhealthy} days offline. First unhealthy: {service.first_unhealthy_at}"
+                    )
+                else:
+                    service.is_available = False
+                    # Log warning for services approaching 30-day threshold
+                    if days_unhealthy >= 25:
+                        days_remaining = 30 - days_unhealthy
+                        logger.warning(
+                            f"Service '{service.name}' (ID: {service.id}) will be auto-deactivated "
+                            f"in {days_remaining} days if it remains offline"
+                        )
+            else:
+                # Service recovered - reset unhealthy tracking
+                if service.first_unhealthy_at:
+                    days_was_unhealthy = (datetime.utcnow() - service.first_unhealthy_at).days
+                    logger.info(
+                        f"Service '{service.name}' (ID: {service.id}) RECOVERED "
+                        f"after {days_was_unhealthy} days offline"
+                    )
+                    service.first_unhealthy_at = None
+                service.is_available = True
+
             # Log health check result
             health_log = ServiceHealthLog(
                 service_id=service.id,
@@ -278,7 +345,7 @@ class ServiceHealthChecker:
                 error_message=health_result["error_message"]
             )
             db.add(health_log)
-        
+
         db.commit()
         logger.info(f"Health check completed for {len(services)} services")
 
@@ -340,6 +407,7 @@ async def list_services(
             max_file_size_mb=service.max_file_size_mb,
             supported_formats=service.supported_formats or [],
             supported_builds=service.supported_builds or [],
+            api_config=service.api_config or {},
             is_active=service.is_active,
             is_available=service.is_available,
             last_health_check=service.last_health_check,
@@ -350,6 +418,37 @@ async def list_services(
             updated_at=service.updated_at
         )
         for service in services
+    ]
+
+@app.get("/services/at-risk")
+async def services_at_risk_check(db: Session = Depends(get_db)):
+    """Get services that will be auto-deactivated soon (offline >25 days)."""
+    from datetime import timedelta
+
+    # Services offline for 25+ days are at risk (will deactivate at 30 days)
+    threshold = datetime.utcnow() - timedelta(days=25)
+
+    at_risk_services = db.query(ImputationService).filter(
+        ImputationService.is_active == True,
+        ImputationService.first_unhealthy_at < threshold,
+        ImputationService.health_status.in_(['unhealthy', 'timeout'])
+    ).all()
+
+    return [
+        {
+            "id": service.id,
+            "name": service.name,
+            "service_type": service.service_type,
+            "api_type": service.api_type,
+            "base_url": service.base_url,
+            "health_status": service.health_status,
+            "days_offline": (datetime.utcnow() - service.first_unhealthy_at).days,
+            "days_until_deactivation": 30 - (datetime.utcnow() - service.first_unhealthy_at).days,
+            "first_unhealthy_at": service.first_unhealthy_at,
+            "last_health_check": service.last_health_check,
+            "error_message": service.error_message
+        }
+        for service in at_risk_services
     ]
 
 @app.get("/services/{service_id}", response_model=ServiceResponse)
@@ -373,6 +472,7 @@ async def get_service(service_id: int, db: Session = Depends(get_db)):
         max_file_size_mb=service.max_file_size_mb,
         supported_formats=service.supported_formats or [],
         supported_builds=service.supported_builds or [],
+        api_config=service.api_config or {},
         is_active=service.is_active,
         is_available=service.is_available,
         last_health_check=service.last_health_check,
@@ -397,7 +497,8 @@ async def create_service(service_data: ServiceCreate, db: Session = Depends(get_
         auth_type=service_data.auth_type,
         max_file_size_mb=service_data.max_file_size_mb,
         supported_formats=service_data.supported_formats,
-        supported_builds=service_data.supported_builds
+        supported_builds=service_data.supported_builds,
+        api_config=service_data.api_config or {}
     )
     
     db.add(service)
@@ -419,6 +520,7 @@ async def create_service(service_data: ServiceCreate, db: Session = Depends(get_
         max_file_size_mb=service.max_file_size_mb,
         supported_formats=service.supported_formats or [],
         supported_builds=service.supported_builds or [],
+        api_config=service.api_config or {},
         is_active=service.is_active,
         is_available=service.is_available,
         last_health_check=service.last_health_check,
@@ -428,6 +530,92 @@ async def create_service(service_data: ServiceCreate, db: Session = Depends(get_
         created_at=service.created_at,
         updated_at=service.updated_at
     )
+
+@app.patch("/services/{service_id}", response_model=ServiceResponse)
+async def update_service(
+    service_id: int,
+    service_data: ServiceUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update an existing imputation service (partial update)."""
+    service = db.query(ImputationService).filter(ImputationService.id == service_id).first()
+
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+
+    # Update only provided fields
+    update_data = service_data.dict(exclude_unset=True)
+
+    # Convert HttpUrl to string if base_url is being updated
+    if 'base_url' in update_data and update_data['base_url'] is not None:
+        update_data['base_url'] = str(update_data['base_url'])
+
+    # Update service attributes
+    for field, value in update_data.items():
+        setattr(service, field, value)
+
+    # Update the updated_at timestamp
+    service.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(service)
+
+    logger.info(f"Updated service: {service.name} (ID: {service_id})")
+
+    return ServiceResponse(
+        id=service.id,
+        name=service.name,
+        service_type=service.service_type,
+        api_type=service.api_type,
+        base_url=str(service.base_url),
+        description=service.description,
+        version=service.version,
+        requires_auth=service.requires_auth,
+        auth_type=service.auth_type,
+        max_file_size_mb=service.max_file_size_mb,
+        supported_formats=service.supported_formats or [],
+        supported_builds=service.supported_builds or [],
+        api_config=service.api_config or {},
+        is_active=service.is_active,
+        is_available=service.is_available,
+        last_health_check=service.last_health_check,
+        health_status=service.health_status,
+        response_time_ms=service.response_time_ms,
+        error_message=service.error_message,
+        created_at=service.created_at,
+        updated_at=service.updated_at
+    )
+
+@app.delete("/services/{service_id}")
+async def delete_service(
+    service_id: int,
+    db: Session = Depends(get_db)
+):
+    """Delete an imputation service permanently."""
+    service = db.query(ImputationService).filter(ImputationService.id == service_id).first()
+
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+
+    service_name = service.name
+
+    # Delete associated health logs first (foreign key constraint)
+    db.query(ServiceHealthLog).filter(ServiceHealthLog.service_id == service_id).delete()
+
+    # Delete associated reference panels
+    db.query(ReferencePanel).filter(ReferencePanel.service_id == service_id).delete()
+
+    # Delete the service
+    db.delete(service)
+    db.commit()
+
+    logger.info(f"Deleted service: {service_name} (ID: {service_id})")
+
+    return {
+        "message": f"Service '{service_name}' deleted successfully",
+        "deleted_service_id": service_id,
+        "deleted_service_name": service_name
+    }
 
 @app.get("/services/{service_id}/health", response_model=HealthCheckResponse)
 async def check_service_health_endpoint(

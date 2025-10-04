@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Diagnostic Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #1976d2;
+            padding-bottom: 10px;
+        }
+        .test {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #fafafa;
+        }
+        .test h3 {
+            margin-top: 0;
+            color: #1976d2;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        button {
+            background: #1976d2;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #1565c0;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #1976d2;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Network Diagnostic Test</h1>
+        <p>This page will help diagnose the ERR_NETWORK error you're experiencing.</p>
+
+        <div class="test">
+            <h3>Test 1: Fetch API (Same as React App)</h3>
+            <p>Tests the exact same method used by the React application</p>
+            <button onclick="testFetch()" id="fetchBtn">Run Test</button>
+            <div id="fetchResult"></div>
+        </div>
+
+        <div class="test">
+            <h3>Test 2: XMLHttpRequest (Alternative Method)</h3>
+            <p>Tests an older but more reliable HTTP request method</p>
+            <button onclick="testXHR()" id="xhrBtn">Run Test</button>
+            <div id="xhrResult"></div>
+        </div>
+
+        <div class="test">
+            <h3>Test 3: CORS Preflight</h3>
+            <p>Tests if CORS configuration allows cross-origin requests</p>
+            <button onclick="testCORS()" id="corsBtn">Run Test</button>
+            <div id="corsResult"></div>
+        </div>
+
+        <div class="test">
+            <h3>Test 4: Network Information</h3>
+            <p>Shows your browser's network capabilities</p>
+            <button onclick="showNetworkInfo()" id="infoBtn">Show Info</button>
+            <div id="infoResult"></div>
+        </div>
+
+        <div class="test">
+            <h3>Test 5: Browser Console Check</h3>
+            <p>Open DevTools Console (F12) and look for any security errors or CSP violations</p>
+            <div class="result info">
+                Check the Console tab for errors like:
+                - Mixed Content warnings
+                - CORS errors
+                - Content Security Policy violations
+                - Network policy blocks
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://154.114.10.123:8000/api/auth/login/';
+
+        async function testFetch() {
+            const btn = document.getElementById('fetchBtn');
+            const result = document.getElementById('fetchResult');
+            btn.disabled = true;
+            result.innerHTML = '<div class="loading"></div>';
+
+            try {
+                console.log('=== FETCH TEST START ===');
+                console.log('URL:', API_URL);
+                console.log('Method: POST');
+                console.log('Body:', JSON.stringify({username: 'test_user', password: 'test_password'}));
+
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        username: 'test_user',
+                        password: 'test_password'
+                    }),
+                    mode: 'cors',
+                    credentials: 'omit'
+                });
+
+                console.log('Response status:', response.status);
+                console.log('Response headers:', [...response.headers.entries()]);
+
+                const data = await response.json();
+                console.log('Response data:', data);
+                console.log('=== FETCH TEST SUCCESS ===');
+
+                result.innerHTML = `<div class="result success">
+✅ SUCCESS!
+Status: ${response.status}
+Has access_token: ${!!data.access_token}
+Response: ${JSON.stringify(data, null, 2)}
+                </div>`;
+            } catch (error) {
+                console.error('=== FETCH TEST ERROR ===');
+                console.error('Error:', error);
+                console.error('Error name:', error.name);
+                console.error('Error message:', error.message);
+                console.error('Error stack:', error.stack);
+
+                result.innerHTML = `<div class="result error">
+❌ FAILED!
+Error Type: ${error.name}
+Error Message: ${error.message}
+Stack: ${error.stack}
+
+This is the same error your React app is experiencing!
+                </div>`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function testXHR() {
+            const btn = document.getElementById('xhrBtn');
+            const result = document.getElementById('xhrResult');
+            btn.disabled = true;
+            result.innerHTML = '<div class="loading"></div>';
+
+            console.log('=== XHR TEST START ===');
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', API_URL, true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+
+            xhr.onload = function() {
+                console.log('XHR Status:', xhr.status);
+                console.log('XHR Response:', xhr.responseText);
+                console.log('=== XHR TEST SUCCESS ===');
+
+                result.innerHTML = `<div class="result success">
+✅ SUCCESS!
+Status: ${xhr.status}
+Response: ${xhr.responseText}
+                </div>`;
+                btn.disabled = false;
+            };
+
+            xhr.onerror = function() {
+                console.error('=== XHR TEST ERROR ===');
+                console.error('XHR Error - no details available');
+                console.error('ReadyState:', xhr.readyState);
+                console.error('Status:', xhr.status);
+
+                result.innerHTML = `<div class="result error">
+❌ FAILED!
+ReadyState: ${xhr.readyState}
+Status: ${xhr.status}
+Error: Network request failed
+
+Possible causes:
+- Firewall blocking the request
+- Corporate proxy/VPN blocking
+- Browser extension blocking
+- DNS resolution failure
+                </div>`;
+                btn.disabled = false;
+            };
+
+            xhr.send(JSON.stringify({
+                username: 'test_user',
+                password: 'test_password'
+            }));
+        }
+
+        async function testCORS() {
+            const btn = document.getElementById('corsBtn');
+            const result = document.getElementById('corsResult');
+            btn.disabled = true;
+            result.innerHTML = '<div class="loading"></div>';
+
+            try {
+                console.log('=== CORS TEST START ===');
+
+                const response = await fetch(API_URL, {
+                    method: 'OPTIONS',
+                    headers: {
+                        'Access-Control-Request-Method': 'POST',
+                        'Access-Control-Request-Headers': 'content-type',
+                        'Origin': window.location.origin
+                    }
+                });
+
+                const headers = {};
+                response.headers.forEach((value, key) => {
+                    if (key.startsWith('access-control')) {
+                        headers[key] = value;
+                    }
+                });
+
+                console.log('CORS headers:', headers);
+                console.log('=== CORS TEST SUCCESS ===');
+
+                result.innerHTML = `<div class="result success">
+✅ CORS Configuration Found!
+${JSON.stringify(headers, null, 2)}
+                </div>`;
+            } catch (error) {
+                console.error('=== CORS TEST ERROR ===');
+                console.error('Error:', error);
+
+                result.innerHTML = `<div class="result error">
+❌ CORS Test Failed!
+${error.message}
+                </div>`;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function showNetworkInfo() {
+            const btn = document.getElementById('infoBtn');
+            const result = document.getElementById('infoResult');
+
+            console.log('=== NETWORK INFO ===');
+
+            const info = {
+                userAgent: navigator.userAgent,
+                language: navigator.language,
+                onLine: navigator.onLine,
+                cookieEnabled: navigator.cookieEnabled,
+                origin: window.location.origin,
+                protocol: window.location.protocol,
+                hostname: window.location.hostname
+            };
+
+            // Check for network connection API
+            if ('connection' in navigator) {
+                info.connection = {
+                    effectiveType: navigator.connection.effectiveType,
+                    downlink: navigator.connection.downlink,
+                    rtt: navigator.connection.rtt
+                };
+            }
+
+            console.log('Network Info:', info);
+            console.log('=== NETWORK INFO END ===');
+
+            result.innerHTML = `<div class="result info">
+📊 Browser Network Information:
+${JSON.stringify(info, null, 2)}
+            </div>`;
+        }
+
+        // Auto-run basic info on load
+        window.addEventListener('load', () => {
+            console.log('%c🔍 Network Diagnostic Test Loaded', 'color: blue; font-size: 16px; font-weight: bold');
+            console.log('Open this console and run tests to see detailed diagnostic information');
+            showNetworkInfo();
+        });
+    </script>
+</body>
+</html>

@@ -82,17 +82,34 @@ npx playwright show-report
 ## 🏗️ Architecture Directory (`architecture/`)
 
 ### Technical Documentation
+- `DJANGO_FASTAPI_ARCHITECTURE.md` - **Comprehensive guide to Django + FastAPI hybrid architecture**
+  - Why both frameworks? Performance comparison and use cases
+  - 7-database architecture explained (database-per-service pattern)
+  - ILIFU service connection deep dive
+  - Django Admin & microservices integration (current gaps and solutions)
+  - Data synchronization challenges and future patterns
 - `DJANGO_REACT_ARCHITECTURE_FIX.md` - Architecture improvements and fixes
 
+### Quick Reference
+- **Architecture Overview**: `architecture/ARCHITECTURE_CONTEXT.md` - 30-second overview and troubleshooting
+
 ### System Design
-- Backend: Django REST Framework with PostgreSQL
-- Frontend: React with TypeScript and Material-UI
-- Queue: Celery with Redis
-- Deployment: Docker Compose
+- **Backend**: Django REST Framework (admin, auth) + FastAPI microservices (async operations)
+- **Frontend**: React with TypeScript and Material-UI
+- **Queue**: Celery with Redis
+- **Deployment**: Docker Compose (7 microservices + infrastructure)
+- **Databases**: 7 PostgreSQL databases (database-per-service pattern)
+
+### Key Architecture Decisions
+- **Hybrid Framework**: Django for admin/UI, FastAPI for performance (10x faster health checks)
+- **Microservices**: 7 independent services with isolated databases
+- **Async Operations**: FastAPI native async for concurrent external service health monitoring
+- **Memory Efficiency**: 75% less RAM than all-Django (300 MB vs 1.2 GB for microservices)
 
 ## 🔍 Troubleshooting Directory (`troubleshooting/`)
 
 ### Issue Resolution
+- `TROUBLESHOOTING.md` - **Comprehensive troubleshooting guide** for common issues
 - `LOGIN_TROUBLESHOOTING.md` - Authentication issue debugging
 - `TESTING_RULES.md` - Testing guidelines and best practices
 
