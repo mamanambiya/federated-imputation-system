@@ -480,6 +480,72 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
         last_login=current_user.last_login
     )
 
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+class PasswordChangeResponse(BaseModel):
+    message: str
+    updated_at: datetime
+
+@app.post("/auth/change-password", response_model=PasswordChangeResponse)
+async def change_password(
+    password_data: PasswordChange,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Change the current user's password."""
+
+    # Verify current password
+    if not verify_password(password_data.current_password, current_user.hashed_password):
+        log_user_action(
+            db=db,
+            user_id=current_user.id,
+            action="password_change_failed",
+            details="Incorrect current password provided",
+            ip_address=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="Current password is incorrect"
+        )
+
+    # Validate new password (basic validation)
+    if len(password_data.new_password) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be at least 8 characters long"
+        )
+
+    if password_data.new_password == password_data.current_password:
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be different from current password"
+        )
+
+    # Update password
+    current_user.hashed_password = get_password_hash(password_data.new_password)
+    db.commit()
+
+    # Log successful password change
+    log_user_action(
+        db=db,
+        user_id=current_user.id,
+        action="password_changed",
+        details="Password updated successfully",
+        ip_address=request.client.host,
+        user_agent=request.headers.get("user-agent")
+    )
+
+    logger.info(f"Password changed for user: {current_user.username}")
+
+    return PasswordChangeResponse(
+        message="Password changed successfully",
+        updated_at=datetime.utcnow()
+    )
+
 @app.get("/users/{user_id}/roles", response_model=List[RoleResponse])
 async def get_user_roles(
     user_id: int,
