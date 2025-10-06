@@ -303,7 +303,11 @@ const Jobs: React.FC = () => {
                 </TableCell>
               </TableRow>
             ) : (
-              jobs.map((job) => (
+              jobs.map((job) => {
+                // Find the service for this job
+                const service = services.find(s => s.id === job.service_id);
+
+                return (
                 <TableRow key={job.id} hover>
                   <TableCell>
                     <Box>
@@ -319,13 +323,13 @@ const Jobs: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <Box display="flex" alignItems="center">
-                      {getServiceIcon(job.service.service_type)}
+                      {service ? getServiceIcon(service.service_type) : <Storage />}
                       <Box ml={1}>
                         <Typography variant="body2">
-                          {job.service.name}
+                          {service?.name || `Service #${job.service_id}`}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          {job.reference_panel.name}
+                          Panel #{job.reference_panel_id}
                         </Typography>
                       </Box>
                     </Box>
@@ -413,7 +417,8 @@ const Jobs: React.FC = () => {
                     </Stack>
                   </TableCell>
                 </TableRow>
-              ))
+                );
+              })
             )}
           </TableBody>
         </Table>
