@@ -1,0 +1,85 @@
+graph TB
+    subgraph "🖥️ CENTRAL PLATFORM"
+        UI["<b>Central Web UI</b><br/>React Frontend<br/>http://154.114.10.123:3000<br/><br/>User Authentication ✅<br/>Job Submission ✅<br/>Service Discovery ✅<br/>Result Management"]
+
+        Gateway["<b>API Gateway</b><br/>Port 8000<br/><br/>Request Routing<br/>Load Balancing<br/>Authentication"]
+
+        Backend["<b>Backend Services</b><br/><br/>• User Service (Port 8001)<br/>• Service Registry (Port 8002)<br/>• Job Processor (Port 8003)<br/>• File Manager (Port 8004)<br/>• Monitoring (Port 8005)"]
+
+        DB[("<b>Central Database</b><br/>PostgreSQL<br/><br/>• User accounts<br/>• Job metadata<br/>• Service catalog<br/>• Results index")]
+
+        Queue[("<b>Task Queue</b><br/>Redis + Celery<br/><br/>Job orchestration<br/>Async processing")]
+    end
+
+    subgraph "☁️ CLOUD IMPUTATION SERVICES"
+        Michigan["<b>🧬 Michigan Imputation Server</b><br/>https://impute.afrigen-d.org<br/><br/><b>Type:</b> Michigan/TopMed<br/><b>Format:</b> Cloudgene API<br/><b>Status:</b> ✅ Integrated<br/><br/><b>Reference Panels:</b><br/>• 1000 Genomes Phase 3 (v5)<br/>• H3Africa (v6) - 4,447 samples<br/>• HapMap 2<br/>• CAAPA<br/><br/><b>Features:</b><br/>• Quality Control<br/>• Phasing (Eagle2)<br/>• Imputation (Minimac4)<br/>• GRCh37/GRCh38 support"]
+
+        H3Africa["<b>🌍 H3Africa Imputation Server</b><br/>Legacy Historical Service<br/><br/><b>Type:</b> Custom API<br/><b>Status:</b> Available<br/><br/><b>Reference Panels:</b><br/>• African populations<br/>• H3Africa consortium data<br/><br/><b>Features:</b><br/>• African-specific panels<br/>• Historical job support"]
+    end
+
+    subgraph "🏢 ON-PREMISE SERVICES"
+        Mali["<b>📍 MALI Site</b><br/>West Africa Regional Hub<br/><br/><b>Infrastructure:</b><br/>• DRS (Data Repository Service)<br/>• WesKIT (Workflow Execution)<br/>• Nextflow pipelines<br/>• Local Docker compute<br/><br/><b>Data:</b><br/>• Local genomic datasets<br/>• Regional reference data<br/><br/><b>Status:</b> Planned"]
+
+        ILIFU["<b>📍 ILIFU Site</b><br/>South Africa HPC<br/><br/><b>Infrastructure:</b><br/>• DRS/WesKIT<br/>• Attestation services<br/>• Data SPA integration<br/>• HPC compute cluster<br/><br/><b>Data:</b><br/>• Secure data hosting<br/>• Privacy-preserving compute<br/><br/><b>Status:</b> Planned"]
+
+        Azure["<b>☁️ Azure Site</b><br/>Cloud Compute<br/><br/><b>Infrastructure:</b><br/>• DNAstack platform<br/>• DRS/WesKIT<br/>• Docker containers<br/>• Scalable compute<br/><br/><b>Features:</b><br/>• Cloud-native workflows<br/>• Auto-scaling<br/><br/><b>Status:</b> Planned"]
+    end
+
+    subgraph "👥 USER INTERACTION"
+        Researcher["<b>👨‍🔬 Researcher</b><br/><br/>• Upload VCF files<br/>• Select imputation service<br/>• Choose reference panel<br/>• Configure parameters<br/>• Monitor job progress<br/>• Download results"]
+    end
+
+    %% User to Central UI
+    Researcher -->|"1. Access Web Interface"| UI
+
+    %% Central UI internal flow
+    UI -->|"2. Authenticate & Route"| Gateway
+    Gateway -->|"3. Process Requests"| Backend
+    Backend -->|"4. Store Metadata"| DB
+    Backend -->|"5. Queue Jobs"| Queue
+
+    %% Central to Imputation Services
+    Queue -->|"6. Submit Job<br/>(Cloudgene Format)<br/>refpanel: apps@h3africa-v6hc-s@1.0.0"| Michigan
+    Queue -->|"Submit Job<br/>(Custom API)"| H3Africa
+
+    %% Future connections (dashed)
+    Queue -.->|"Future: WesKIT Protocol"| Mali
+    Queue -.->|"Future: WesKIT Protocol"| ILIFU
+    Queue -.->|"Future: DNAstack API"| Azure
+
+    %% Results flow back
+    Michigan -->|"7. Job Status Updates<br/>8. Results Available"| Queue
+    H3Africa -->|"Job Status & Results"| Queue
+    Mali -.->|"Future: Results"| Queue
+    ILIFU -.->|"Future: Results"| Queue
+    Azure -.->|"Future: Results"| Queue
+
+    Queue -->|"9. Update Job Status"| Backend
+    Backend -->|"10. Store Results Metadata"| DB
+    UI -->|"11. Notify User"| Researcher
+
+    %% Data residency consideration
+    Mali -.->|"Data Residency<br/>Considerations"| ILIFU
+
+    %% Monitoring
+    Backend -->|"Health Checks"| Michigan
+    Backend -->|"Health Checks"| H3Africa
+    Backend -.->|"Future: Health Checks"| Mali
+    Backend -.->|"Future: Health Checks"| ILIFU
+    Backend -.->|"Future: Health Checks"| Azure
+
+    %% Styling
+    style UI fill:#FFD700,stroke:#000,stroke-width:4px,color:#000
+    style Gateway fill:#FFA500,stroke:#000,stroke-width:3px,color:#000
+    style Backend fill:#FFE4B5,stroke:#000,stroke-width:2px,color:#000
+    style DB fill:#4169E1,stroke:#000,stroke-width:2px,color:#fff
+    style Queue fill:#DC143C,stroke:#000,stroke-width:2px,color:#fff
+
+    style Michigan fill:#32CD32,stroke:#000,stroke-width:3px,color:#000
+    style H3Africa fill:#3CB371,stroke:#000,stroke-width:3px,color:#000
+
+    style Mali fill:#87CEEB,stroke:#000,stroke-width:2px,color:#000,stroke-dasharray: 5 5
+    style ILIFU fill:#87CEEB,stroke:#000,stroke-width:2px,color:#000,stroke-dasharray: 5 5
+    style Azure fill:#87CEEB,stroke:#000,stroke-width:2px,color:#000,stroke-dasharray: 5 5
+
+    style Researcher fill:#FFB6C1,stroke:#000,stroke-width:2px,color:#000

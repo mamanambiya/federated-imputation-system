@@ -56,6 +56,70 @@ federated-imputation-central/
 
 ## Quick Start (When Network Works)
 
+### Setup Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    SETUP PROCESS FLOW                       │
+└─────────────────────────────────────────────────────────────┘
+
+STEP 1: Start Infrastructure
+   docker-compose up -d
+        ↓
+   ┌──────────┐  ┌───────┐  ┌───────────┐
+   │PostgreSQL│  │ Redis │  │  Celery   │
+   │  :5432   │  │ :6379 │  │  Worker   │
+   └──────────┘  └───────┘  └───────────┘
+        ↓
+   Infrastructure Ready ✅
+
+STEP 2: Initialize Database
+   docker-compose exec web python manage.py migrate
+        ↓
+   Creates tables:
+   • imputation_service
+   • reference_panel
+   • imputation_job
+   • user_service_credentials
+   • ...
+        ↓
+   Database Initialized ✅
+
+STEP 3: Create Admin User
+   docker-compose exec web python manage.py createsuperuser
+        ↓
+   Enter: username, email, password
+        ↓
+   Admin Account Created ✅
+
+STEP 4: (Optional) Load Initial Services
+   docker-compose exec web python manage.py loaddata initial_services.json
+        ↓
+   Pre-configured services loaded ✅
+
+STEP 5: Start Application Services
+   ┌─────────────────────────────────────────┐
+   │  Backend Services (FastAPI)             │
+   ├─────────────────────────────────────────┤
+   │  • API Gateway      :8000               │
+   │  • User Service     :8001               │
+   │  • Service Registry :8002               │
+   │  • Job Processor    :8003               │
+   │  • File Manager     :8004               │
+   │  • Notification     :8005               │
+   │  • Monitoring       :8006               │
+   └─────────────────────────────────────────┘
+                    ↓
+   ┌─────────────────────────────────────────┐
+   │  Frontend (React)                       │
+   │  http://localhost:3000                  │
+   └─────────────────────────────────────────┘
+                    ↓
+   System Ready! 🚀
+```
+
+### Commands
+
 ```bash
 # Start all services
 sudo docker-compose up -d

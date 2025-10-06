@@ -50,6 +50,9 @@ import {
   Delete,
   Info,
   Key,
+  LocationOn,
+  Memory,
+  DataUsage,
 } from '@mui/icons-material';
 import { useDropzone } from 'react-dropzone';
 import { useApi, ImputationService, ReferencePanel } from '../contexts/ApiContext';
@@ -58,7 +61,7 @@ const steps = ['Upload File', 'Select Service & Panel', 'Configure Job', 'Review
 
 const NewJob: React.FC = () => {
   const navigate = useNavigate();
-  const { getServices, getServiceReferencePanels, createJob } = useApi();
+  const { discoverServices, getServiceReferencePanels, createJob } = useApi();
   
   // State
   const [activeStep, setActiveStep] = useState(0);
@@ -122,8 +125,28 @@ const NewJob: React.FC = () => {
   const loadServices = async () => {
     try {
       setLoading(true);
-      const data = await getServices();
+      // Use discovery endpoint for intelligent sorting (online first, proximity-based)
+      const data = await discoverServices({
+        only_active: true,    // Only active services
+        only_healthy: true,   // Only online/healthy services for job submission
+        limit: 50
+      });
       setServices(data);
+
+      // Load reference panels for all services in parallel
+      const panelsData: { [serviceId: string]: ReferencePanel[] } = {};
+      await Promise.all(
+        data.map(async (service) => {
+          try {
+            const panels = await getServiceReferencePanels(service.id);
+            panelsData[service.id.toString()] = panels;
+          } catch (err) {
+            console.error(`Failed to fetch panels for service ${service.id}:`, err);
+            panelsData[service.id.toString()] = [];
+          }
+        })
+      );
+      setReferencePanelsByService(panelsData);
     } catch (err) {
       setError('Failed to load services');
       console.error('Error loading services:', err);
@@ -260,8 +283,8 @@ const NewJob: React.FC = () => {
         formData.append('input_file', file);
         formData.append('name', `${jobData.name} - ${selectedService.serviceName}`);
         formData.append('description', jobData.description);
-        formData.append('service', selectedService.serviceId);
-        formData.append('reference_panel', selectedService.panelId);
+        formData.append('service_id', selectedService.serviceId);
+        formData.append('reference_panel_id', selectedService.panelId);
         formData.append('input_format', jobData.input_format);
         formData.append('build', jobData.build);
         formData.append('phasing', jobData.phasing.toString());
@@ -656,10 +679,19 @@ const NewJob: React.FC = () => {
             <Typography variant="h6" gutterBottom>
               Select Service
             </Typography>
-            <Grid container spacing={2} sx={{ mb: 3 }}>
-              {services.map((service) => (
-                <Grid item xs={12} md={6} key={service.id}>
-                  <Card 
+
+            {/* Filter to show only active and available services */}
+            {services.filter(s => s.is_active && s.is_available).length === 0 ? (
+              <Alert severity="warning" sx={{ mb: 3 }}>
+                No online services available at the moment. Please contact your administrator to register imputation services.
+              </Alert>
+            ) : (
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                {services
+                  .filter(service => service.is_active && service.is_available)
+                  .map((service) => (
+                  <Grid item xs={12} md={6} key={service.id}>
+                    <Card 
                     sx={{ 
                       cursor: 'pointer',
                       border: selectedModalService === service.id.toString() ? 2 : 1,
@@ -677,8 +709,8 @@ const NewJob: React.FC = () => {
                   >
                     <CardContent>
                       <Box display="flex" alignItems="center" mb={1}>
-                        {service.service_type === 'h3africa' ? 
-                          <Group color="primary" sx={{ mr: 1 }} /> : 
+                        {service.service_type === 'h3africa' ?
+                          <Group color="primary" sx={{ mr: 1 }} /> :
                           <Speed color="secondary" sx={{ mr: 1 }} />
                         }
                         <Typography variant="h6" component="span">
@@ -688,22 +720,58 @@ const NewJob: React.FC = () => {
                       <Typography variant="body2" color="text.secondary" paragraph>
                         {service.description}
                       </Typography>
-                      <Box display="flex" gap={1}>
-                        <Chip 
-                          size="small" 
-                          label={`${service.reference_panels_count} panels`}
+
+                      {/* Location Display */}
+                      {(service.location_city || service.location_country) && (
+                        <Box display="flex" alignItems="center" mb={1}>
+                          <LocationOn sx={{ fontSize: 14, mr: 0.5, color: 'text.secondary' }} />
+                          <Typography variant="caption" color="text.secondary">
+                            {service.location_datacenter && `${service.location_datacenter}, `}
+                            {service.location_city && `${service.location_city}, `}
+                            {service.location_country}
+                          </Typography>
+                        </Box>
+                      )}
+
+                      {/* Resource Display */}
+                      {(service.cpu_total || service.memory_total_gb) && (
+                        <Box display="flex" alignItems="center" gap={1} mb={1}>
+                          {service.cpu_total && (
+                            <Box display="flex" alignItems="center">
+                              <Memory sx={{ fontSize: 14, mr: 0.5, color: 'text.secondary' }} />
+                              <Typography variant="caption" color="text.secondary">
+                                {service.cpu_available || service.cpu_total}/{service.cpu_total} CPU
+                              </Typography>
+                            </Box>
+                          )}
+                          {service.memory_total_gb && (
+                            <Box display="flex" alignItems="center">
+                              <DataUsage sx={{ fontSize: 14, mr: 0.5, color: 'text.secondary' }} />
+                              <Typography variant="caption" color="text.secondary">
+                                {service.memory_available_gb?.toFixed(0) || service.memory_total_gb}/{service.memory_total_gb}GB RAM
+                              </Typography>
+                            </Box>
+                          )}
+                        </Box>
+                      )}
+
+                      <Box display="flex" gap={1} flexWrap="wrap">
+                        <Chip
+                          size="small"
+                          label={`${(referencePanelsByService[service.id.toString()] || []).length} panels`}
                           icon={<Storage />}
                         />
-                        <Chip 
-                          size="small" 
+                        <Chip
+                          size="small"
                           label={`Max ${service.max_file_size_mb}MB`}
                         />
                       </Box>
                     </CardContent>
                   </Card>
                 </Grid>
-              ))}
-            </Grid>
+                ))}
+              </Grid>
+            )}
 
             {/* Reference Panel Selection */}
             {selectedModalService && (
@@ -731,18 +799,23 @@ const NewJob: React.FC = () => {
                         >
                           <Box>
                             <Typography variant="body1">
-                              {panel.name}
+                              <strong>{panel.display_name || panel.name}</strong>
+                              {panel.display_name && (
+                                <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                                  ({panel.name})
+                                </Typography>
+                              )}
                               {isAlreadySelected && (
-                                <Chip 
-                                  label="Already selected" 
-                                  size="small" 
-                                  color="warning" 
+                                <Chip
+                                  label="Already selected"
+                                  size="small"
+                                  color="warning"
                                   sx={{ ml: 1 }}
                                 />
                               )}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                              Population: {panel.population || 'Mixed'} | 
+                              Population: {panel.population || 'Mixed'} |
                               Build: {panel.build || 'hg38'} | 
                               Samples: {panel.samples_count?.toLocaleString() || 'Unknown'}
                             </Typography>

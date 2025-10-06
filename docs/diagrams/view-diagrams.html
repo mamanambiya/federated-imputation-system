@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Federated Imputation - Architecture Diagrams</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1976d2;
+            border-bottom: 3px solid #1976d2;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #424242;
+            margin-top: 40px;
+            padding: 10px;
+            background: #e3f2fd;
+            border-left: 4px solid #1976d2;
+        }
+        .diagram-container {
+            margin: 20px 0;
+            padding: 20px;
+            background: #fafafa;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .mermaid {
+            text-align: center;
+        }
+        .info {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .success {
+            background: #d4edda;
+            border-left: 4px solid #28a745;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .nav {
+            position: sticky;
+            top: 0;
+            background: white;
+            padding: 15px 0;
+            border-bottom: 2px solid #e0e0e0;
+            margin-bottom: 20px;
+            z-index: 100;
+        }
+        .nav a {
+            margin-right: 20px;
+            color: #1976d2;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .nav a:hover {
+            text-decoration: underline;
+        }
+        code {
+            background: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏗️ Federated Genomic Imputation Platform - Architecture Diagrams</h1>
+
+        <div class="success">
+            ✅ <strong>System Status:</strong> All services operational as of 2025-10-06<br>
+            📊 <strong>Diagrams:</strong> 5 comprehensive architecture diagrams<br>
+            🎯 <strong>Purpose:</strong> Visual documentation of complete system architecture
+        </div>
+
+        <div class="nav">
+            <strong>Quick Navigation:</strong>
+            <a href="#arch">Architecture</a>
+            <a href="#job">Job Flow</a>
+            <a href="#auth">Authentication</a>
+            <a href="#michigan">Michigan API</a>
+            <a href="#status">Deployment Status</a>
+        </div>
+
+        <div class="info">
+            <strong>💡 Viewing Tips:</strong>
+            <ul>
+                <li>Scroll horizontally if diagrams are wide</li>
+                <li>Click and drag on sequence diagrams to pan</li>
+                <li>Right-click on diagrams to save as image</li>
+                <li>Refresh page if diagrams don't render</li>
+            </ul>
+        </div>
+
+        <!-- Architecture Overview -->
+        <h2 id="arch">1. Architecture Overview</h2>
+        <p><strong>Shows:</strong> Complete system architecture with all microservices, data layers, and external APIs</p>
+        <div class="diagram-container">
+            <div class="mermaid">
+graph TB
+    subgraph "Client Layer"
+        Browser["🌐 Web Browser<br/>React Frontend<br/>Port 3000"]
+    end
+
+    subgraph "Gateway Layer"
+        Gateway["⚡ API Gateway<br/>FastAPI<br/>Port 8000<br/><br/>- Request Routing<br/>- Authentication<br/>- Rate Limiting"]
+    end
+
+    subgraph "Microservices Layer"
+        UserService["👤 User Service<br/>Port 8001<br/><br/>- Authentication<br/>- User Management<br/>- Permissions"]
+
+        ServiceRegistry["📋 Service Registry<br/>Port 8002<br/><br/>- Service Discovery<br/>- Health Checks<br/>- Panel Management"]
+
+        JobProcessor["⚙️ Job Processor<br/>Port 8003<br/><br/>- Job Creation<br/>- Status Tracking<br/>- Queue Management"]
+
+        FileManager["📁 File Manager<br/>Port 8004<br/><br/>- File Upload<br/>- Storage<br/>- Downloads"]
+
+        Monitoring["📊 Monitoring<br/>Port 8005<br/><br/>- System Metrics<br/>- Dashboard Stats<br/>- Health Aggregation"]
+    end
+
+    subgraph "Worker Layer"
+        CeleryWorker["🔄 Celery Worker<br/><br/>- Job Processing<br/>- Michigan API Calls<br/>- Result Retrieval"]
+    end
+
+    subgraph "Data Layer"
+        PostgreSQL[("🗄️ PostgreSQL<br/>Port 5432<br/><br/>- user_db<br/>- service_registry_db<br/>- job_processing_db<br/>- file_management_db")]
+
+        Redis[("⚡ Redis<br/>Port 6379<br/><br/>- Task Queue<br/>- Cache<br/>- Sessions")]
+    end
+
+    subgraph "External Services"
+        MichiganAPI["🧬 Michigan Imputation<br/>Server<br/><br/>Afrigen-D / TopMed<br/>Cloudgene API"]
+
+        H3AfricaAPI["🌍 H3Africa<br/>Imputation Server<br/><br/>Custom API"]
+    end
+
+    subgraph "Storage"
+        FileStorage["💾 File Storage<br/><br/>- Input VCF Files<br/>- Result Files<br/>- Temporary Files"]
+    end
+
+    Browser -->|"HTTP/HTTPS<br/>Port 3000"| Gateway
+    Gateway -->|"/api/auth/*"| UserService
+    Gateway -->|"/api/services/*"| ServiceRegistry
+    Gateway -->|"/api/jobs/*"| JobProcessor
+    Gateway -->|"/api/files/*"| FileManager
+    Gateway -->|"/api/dashboard/*"| Monitoring
+
+    UserService -->|SQL| PostgreSQL
+    ServiceRegistry -->|SQL| PostgreSQL
+    JobProcessor -->|SQL| PostgreSQL
+    FileManager -->|SQL| PostgreSQL
+    Monitoring -->|SQL| PostgreSQL
+
+    JobProcessor -->|"Enqueue Task"| Redis
+    Redis -->|"Task Queue"| CeleryWorker
+
+    CeleryWorker -->|"Get Job Details"| JobProcessor
+    CeleryWorker -->|"Get Panel Info"| ServiceRegistry
+    CeleryWorker -->|"Store Files"| FileStorage
+    CeleryWorker -->|"Update Status"| JobProcessor
+
+    CeleryWorker -->|"Submit Job<br/>refpanel: apps@{id}@{ver}"| MichiganAPI
+    CeleryWorker -->|"Submit Job"| H3AfricaAPI
+
+    FileManager -->|"Read/Write"| FileStorage
+
+    Monitoring -.->|"Health Checks"| UserService
+    Monitoring -.->|"Health Checks"| ServiceRegistry
+    Monitoring -.->|"Health Checks"| JobProcessor
+    Monitoring -.->|"Health Checks"| FileManager
+
+    ServiceRegistry -.->|"Health Check"| MichiganAPI
+    ServiceRegistry -.->|"Health Check"| H3AfricaAPI
+    ServiceRegistry -.->|"Sync Panels"| MichiganAPI
+
+    style Browser fill:#e1f5ff
+    style Gateway fill:#fff3e0
+    style UserService fill:#f3e5f5
+    style ServiceRegistry fill:#e8f5e9
+    style JobProcessor fill:#fff9c4
+    style FileManager fill:#fce4ec
+    style Monitoring fill:#e0f2f1
+    style CeleryWorker fill:#ffe0b2
+    style PostgreSQL fill:#e3f2fd
+    style Redis fill:#ffebee
+    style MichiganAPI fill:#f1f8e9
+    style H3AfricaAPI fill:#f1f8e9
+    style FileStorage fill:#fafafa
+            </div>
+        </div>
+
+        <!-- Job Submission Flow -->
+        <h2 id="job">2. Job Submission Flow</h2>
+        <p><strong>Shows:</strong> Complete job submission workflow from user login to Michigan API submission with Cloudgene format</p>
+        <p><strong>Key Details:</strong> Field names (<code>service_id</code>, <code>reference_panel_id</code>), Cloudgene format handling, panel endpoint integration</p>
+        <div class="diagram-container">
+            <div class="mermaid">
+sequenceDiagram
+    participant User as 👤 User
+    participant Frontend as 🌐 Frontend
+    participant Gateway as ⚡ Gateway
+    participant UserSvc as 👤 User Service
+    participant JobProc as ⚙️ Job Processor
+    participant SvcReg as 📋 Service Registry
+    participant Worker as 🔄 Worker
+    participant Michigan as 🧬 Michigan API
+
+    Note over User,Michigan: Job Submission with Cloudgene Format
+
+    rect rgb(240, 248, 255)
+        Note over User,UserSvc: 1. Authentication
+        User->>Frontend: Navigate to /jobs/new
+        Frontend->>Gateway: GET /api/auth/user/
+        Gateway->>UserSvc: GET /auth/user/
+        UserSvc-->>Frontend: User authenticated
+    end
+
+    rect rgb(245, 255, 245)
+        Note over User,SvcReg: 2. Service Discovery
+        Frontend->>Gateway: GET /api/services/discover/
+        Gateway->>SvcReg: GET /services/discover/
+        SvcReg-->>Frontend: H3Africa Service (ID: 7)
+        Frontend->>Gateway: GET /api/services/7/panels/
+        Gateway->>SvcReg: GET /services/7/panels/
+        SvcReg-->>Frontend: Panel: apps@h3africa-v6hc-s@1.0.0
+    end
+
+    rect rgb(255, 255, 240)
+        Note over User,JobProc: 3. Job Submission
+        User->>Frontend: Upload VCF + Select Service/Panel
+        Note right of Frontend: service_id: 7<br/>reference_panel_id: 2
+        Frontend->>Gateway: POST /api/jobs/ (FormData)
+        Gateway->>JobProc: POST /jobs/
+        JobProc-->>Frontend: Job created
+    end
+
+    rect rgb(255, 245, 240)
+        Note over Worker,Michigan: 4. Worker Processing
+        Worker->>SvcReg: GET /panels/2
+        Note right of SvcReg: Returns Cloudgene format
+        SvcReg-->>Worker: apps@h3africa-v6hc-s@1.0.0
+        Worker->>Michigan: POST with refpanel
+        Michigan-->>Worker: Job submitted
+    end
+            </div>
+        </div>
+
+        <!-- Authentication Flow -->
+        <h2 id="auth">3. Authentication Flow</h2>
+        <p><strong>Shows:</strong> Login workflow with JWT generation, password validation, and session management</p>
+        <p><strong>Credentials:</strong> admin / admin123 (Fixed 2025-10-06)</p>
+        <div class="diagram-container">
+            <div class="mermaid">
+sequenceDiagram
+    participant User as 👤 User
+    participant Frontend as 🌐 Frontend
+    participant Gateway as ⚡ Gateway
+    participant UserSvc as 👤 User Service
+    participant DB as 🗄️ PostgreSQL
+    participant Redis as ⚡ Redis
+
+    Note over User,Redis: Authentication Flow - Fixed 2025-10-06
+
+    rect rgb(240, 248, 255)
+        Note over User,DB: Login Phase
+        User->>Frontend: Enter admin / admin123
+        Frontend->>Gateway: POST /api/auth/login/
+        Gateway->>UserSvc: POST /auth/login/
+        UserSvc->>DB: SELECT * FROM users WHERE username='admin'
+        DB-->>UserSvc: User record with hash
+        UserSvc->>UserSvc: Verify password (bcrypt)
+        UserSvc->>UserSvc: Generate JWT token
+        UserSvc->>Redis: Store session
+        UserSvc-->>Frontend: Token + user data
+        Frontend-->>User: Redirect to dashboard ✅
+    end
+
+    rect rgb(245, 255, 245)
+        Note over User,Redis: Authenticated Request
+        User->>Frontend: Navigate to /jobs/new
+        Frontend->>Gateway: GET /api/jobs/<br/>Authorization: Bearer {token}
+        Gateway->>UserSvc: Validate token
+        UserSvc->>Redis: Check session
+        UserSvc-->>Gateway: User authenticated
+        Gateway-->>Frontend: Protected content
+    end
+            </div>
+        </div>
+
+        <!-- Michigan API Integration -->
+        <h2 id="michigan">4. Michigan API Integration</h2>
+        <p><strong>Shows:</strong> Complete Michigan imputation workflow with Cloudgene format validation</p>
+        <p><strong>Critical:</strong> Panel format must be <code>apps@{app-id}@{version}</code></p>
+        <div class="diagram-container">
+            <div class="mermaid">
+graph LR
+    A[User Form] -->|service_id, reference_panel_id| B[Job Processor]
+    B -->|Validate Fields| C[Create Job]
+    C -->|Enqueue Task| D[Celery Worker]
+    D -->|GET /panels/2| E[Service Registry]
+    E -->|Return Panel Data| F[Extract Cloudgene Format]
+    F -->|apps@h3africa-v6hc-s@1.0.0| G[Build API Params]
+    G -->|POST refpanel| H[Michigan API]
+    H -->|Validate Format| I[Queue Job]
+    I -->|Return Job ID| J[Update Status]
+
+    style A fill:#e3f2fd
+    style E fill:#c8e6c9
+    style F fill:#fff9c4
+    style H fill:#f1f8e9
+            </div>
+        </div>
+
+        <div class="info">
+            <strong>⚠️ Critical Fixes Highlighted:</strong>
+            <ul>
+                <li><strong>Fix #1:</strong> Frontend field names changed to <code>service_id</code> and <code>reference_panel_id</code> (NewJob.tsx:286-287)</li>
+                <li><strong>Fix #2:</strong> Panel database stores Cloudgene format: <code>apps@h3africa-v6hc-s@1.0.0</code></li>
+                <li><strong>Fix #3:</strong> Worker fetches panel name from Service Registry and passes to Michigan API</li>
+            </ul>
+        </div>
+
+        <!-- Deployment Status -->
+        <h2 id="status">5. Deployment Status (2025-10-06)</h2>
+        <p><strong>Status:</strong> ✅ ALL OPERATIONAL</p>
+        <div class="success">
+            <strong>Services:</strong><br>
+            ✅ Frontend: Up, compiled successfully (Port 3000)<br>
+            ✅ API Gateway: Healthy (Port 8000)<br>
+            ✅ User Service: Healthy, authentication working (Port 8001)<br>
+            ✅ Service Registry: Healthy, 2 panels configured (Port 8002)<br>
+            ✅ Job Processor: Running, Michigan integration ready (Port 8003)<br>
+            ✅ PostgreSQL: 4 databases operational<br>
+            ✅ Redis: Task queue & sessions active<br>
+            <br>
+            <strong>Issues Resolved:</strong><br>
+            ✅ Frontend TypeScript errors (0 compilation errors)<br>
+            ✅ Authentication 403 errors (admin/admin123 working)<br>
+            ✅ Job submission HTTP 422 errors (field names fixed)<br>
+        </div>
+
+        <hr style="margin: 40px 0;">
+
+        <div class="info">
+            <strong>📖 Documentation References:</strong>
+            <ul>
+                <li><a href="../../FIXES_COMPLETED_2025-10-06.md">FIXES_COMPLETED_2025-10-06.md</a> - Recent fixes documentation</li>
+                <li><a href="../../DEPLOYMENT_STATUS_2025-10-06.md">DEPLOYMENT_STATUS_2025-10-06.md</a> - Deployment report</li>
+                <li><a href="../../JOB_SUBMISSION_FIX.md">JOB_SUBMISSION_FIX.md</a> - Field name fix details</li>
+                <li><a href="../MICROSERVICES_ARCHITECTURE_DESIGN.md">MICROSERVICES_ARCHITECTURE_DESIGN.md</a> - Architecture design</li>
+                <li><a href="HOW_TO_VIEW.md">HOW_TO_VIEW.md</a> - Diagram viewing guide</li>
+            </ul>
+        </div>
+
+        <p style="text-align: center; color: #666; margin-top: 40px;">
+            <strong>Created:</strong> 2025-10-06 | <strong>Format:</strong> Mermaid.js | <strong>Location:</strong> docs/diagrams/
+        </p>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default',
+            securityLevel: 'loose',
+            flowchart: {
+                useMaxWidth: true,
+                htmlLabels: true,
+                curve: 'basis'
+            },
+            sequence: {
+                useMaxWidth: true,
+                wrap: true
+            }
+        });
+    </script>
+</body>
+</html>

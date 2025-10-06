@@ -367,14 +367,18 @@ const ServiceDetail: React.FC = () => {
                     />
                   </ListItem>
                 )}
-                {service.location && (
+                {(service.location_city || service.location_country || service.location) && (
                   <ListItem>
                     <ListItemIcon>
                       <LocationOn />
                     </ListItemIcon>
-                    <ListItemText 
+                    <ListItemText
                       primary="Location"
-                      secondary={service.location}
+                      secondary={
+                        service.location_datacenter || service.location_city || service.location_country
+                          ? `${service.location_datacenter ? service.location_datacenter + ', ' : ''}${service.location_city ? service.location_city + ', ' : ''}${service.location_country || ''}`
+                          : service.location
+                      }
                     />
                   </ListItem>
                 )}
@@ -477,12 +481,41 @@ const ServiceDetail: React.FC = () => {
                     }
                   />
                 </ListItem>
+
+                {/* Resource Information */}
+                {(service.cpu_total || service.memory_total_gb) && (
+                  <>
+                    {service.cpu_total && (
+                      <ListItem>
+                        <ListItemIcon>
+                          <Memory />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="CPU Resources"
+                          secondary={`${service.cpu_available || service.cpu_total} / ${service.cpu_total} cores available`}
+                        />
+                      </ListItem>
+                    )}
+                    {service.memory_total_gb && (
+                      <ListItem>
+                        <ListItemIcon>
+                          <DataUsage />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary="Memory Resources"
+                          secondary={`${service.memory_available_gb?.toFixed(1) || service.memory_total_gb} / ${service.memory_total_gb} GB available`}
+                        />
+                      </ListItem>
+                    )}
+                  </>
+                )}
+
                 {service.api_config && Object.keys(service.api_config).length > 0 && (
                   <ListItem>
                     <ListItemIcon>
                       <Settings />
                     </ListItemIcon>
-                    <ListItemText 
+                    <ListItemText
                       primary="Additional Configuration"
                       secondary={`${Object.keys(service.api_config).length} configuration items`}
                     />
@@ -837,11 +870,15 @@ const ServiceDetail: React.FC = () => {
                       />
                     </Grid>
                   )}
-                  {service.location && (
+                  {(service.location_city || service.location_country || service.location) && (
                     <Grid item>
                       <Chip
                         icon={<LocationOn />}
-                        label={service.location}
+                        label={
+                          service.location_city || service.location_country
+                            ? `${service.location_city ? service.location_city + ', ' : ''}${service.location_country || ''}`
+                            : service.location
+                        }
                         variant="outlined"
                         size="small"
                       />
@@ -1143,15 +1180,15 @@ const ServiceDetail: React.FC = () => {
                     <React.Fragment key={panel.id}>
                       <ListItem>
                         <ListItemIcon>
-                          {panel.is_active ? <CheckCircle color="success" /> : <Error color="error" />}
+                          <CheckCircle color="success" />
                         </ListItemIcon>
                         <ListItemText
                           primary={
                             <Box display="flex" alignItems="center" gap={1}>
                               <Typography variant="subtitle1">
-                                {panel.name}
+                                {panel.display_name || panel.name}
                               </Typography>
-                              <Chip label={panel.panel_id} size="small" variant="outlined" />
+                              {panel.panel_id && <Chip label={panel.panel_id} size="small" variant="outlined" />}
                             </Box>
                           }
                           secondary={

@@ -105,11 +105,19 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
         onMenuClick={onMenuClick}
       />
       
-      {/* User Menu (positioned absolute to appear on top of Header) */}
-      <Box sx={{ position: 'fixed', top: 0, right: 0, zIndex: 9999 }}>
+      {/* User Menu (positioned at top right, but keep it there for now) */}
+      <Box sx={{
+        position: 'fixed',
+        top: 0,
+        right: 0,
+        height: '64px',
+        display: 'flex',
+        alignItems: 'center',
+        zIndex: 9999
+      }}>
         {user && (
           <>
-            <Box sx={{ display: 'flex', alignItems: 'center', p: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', px: 2 }}>
               <Typography variant="body2" sx={{ mr: 2, color: 'white' }}>
                 {user.first_name} {user.last_name}
               </Typography>

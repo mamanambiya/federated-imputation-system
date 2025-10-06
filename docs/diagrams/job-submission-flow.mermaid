@@ -1,0 +1,138 @@
+sequenceDiagram
+    participant User as 👤 User<br/>(Browser)
+    participant Frontend as 🌐 Frontend<br/>React App
+    participant Gateway as ⚡ API Gateway<br/>Port 8000
+    participant UserSvc as 👤 User Service<br/>Port 8001
+    participant JobProc as ⚙️ Job Processor<br/>Port 8003
+    participant SvcReg as 📋 Service Registry<br/>Port 8002
+    participant DB as 🗄️ PostgreSQL
+    participant Redis as ⚡ Redis
+    participant Worker as 🔄 Celery Worker
+    participant Michigan as 🧬 Michigan API<br/>(Cloudgene)
+
+    Note over User,Michigan: Job Submission Flow with Michigan Imputation Service
+
+    %% Authentication
+    rect rgb(240, 248, 255)
+        Note over User,UserSvc: 1. Authentication Phase
+        User->>Frontend: Navigate to /jobs/new
+        Frontend->>Gateway: GET /api/auth/user/
+        Gateway->>UserSvc: GET /auth/user/
+        UserSvc->>DB: Query user_db
+        DB-->>UserSvc: User data
+        UserSvc-->>Gateway: User authenticated
+        Gateway-->>Frontend: User info + token
+        Frontend-->>User: Show job form
+    end
+
+    %% Service Discovery
+    rect rgb(245, 255, 245)
+        Note over User,SvcReg: 2. Service Discovery Phase
+        User->>Frontend: Load service options
+        Frontend->>Gateway: GET /api/services/discover/
+        Gateway->>SvcReg: GET /services/discover/
+        SvcReg->>DB: Query service_registry_db
+        DB-->>SvcReg: Available services
+        SvcReg-->>Gateway: Services list
+        Gateway-->>Frontend: H3Africa Service (ID: 7)
+
+        Frontend->>Gateway: GET /api/services/7/panels/
+        Gateway->>SvcReg: GET /services/7/panels/
+        SvcReg->>DB: Query reference_panels
+        DB-->>SvcReg: Panel list
+        Note right of DB: Panel: apps@h3africa-v6hc-s@1.0.0
+        SvcReg-->>Gateway: Reference panels
+        Gateway-->>Frontend: Display panels
+        Frontend-->>User: Show service + panel options
+    end
+
+    %% Job Submission
+    rect rgb(255, 255, 240)
+        Note over User,JobProc: 3. Job Submission Phase
+        User->>Frontend: Upload VCF + Select Service/Panel
+        Note right of User: service_id: 7<br/>reference_panel_id: 2
+        Frontend->>Gateway: POST /api/jobs/<br/>FormData with service_id, reference_panel_id
+        Gateway->>JobProc: POST /jobs/<br/>FormData
+
+        JobProc->>DB: INSERT INTO imputation_jobs
+        DB-->>JobProc: Job ID created
+
+        JobProc->>Redis: Enqueue task(job_id)
+        Redis-->>JobProc: Task queued
+
+        JobProc-->>Gateway: 200 OK + Job details
+        Gateway-->>Frontend: Job created
+        Frontend-->>User: Redirect to job details
+    end
+
+    %% Worker Processing
+    rect rgb(255, 245, 240)
+        Note over Redis,Michigan: 4. Worker Processing Phase
+        Redis->>Worker: Dequeue task(job_id)
+
+        Worker->>JobProc: GET /jobs/{job_id}
+        JobProc->>DB: Query job details
+        DB-->>JobProc: Job data
+        JobProc-->>Worker: Job details
+
+        Worker->>SvcReg: GET /panels/2
+        Note right of Worker: Fetch Cloudgene format
+        SvcReg->>DB: Query reference_panel
+        DB-->>SvcReg: Panel data
+        Note right of DB: name: apps@h3africa-v6hc-s@1.0.0
+        SvcReg-->>Worker: Panel info (Cloudgene format)
+
+        Worker->>Michigan: POST /api/v2/jobs/submit/imputationserver2
+        Note right of Worker: refpanel: apps@h3africa-v6hc-s@1.0.0<br/>build: hg38<br/>phasing: eagle<br/>files: [VCF]
+
+        Michigan-->>Worker: Job submitted (external_job_id)
+
+        Worker->>JobProc: PATCH /jobs/{job_id}/status/
+        JobProc->>DB: UPDATE job status = 'queued'
+        DB-->>JobProc: Updated
+        JobProc-->>Worker: Status updated
+    end
+
+    %% Status Monitoring
+    rect rgb(245, 245, 255)
+        Note over User,Michigan: 5. Status Monitoring Phase
+        loop Every 30 seconds
+            User->>Frontend: View job page
+            Frontend->>Gateway: GET /api/jobs/{job_id}/
+            Gateway->>JobProc: GET /jobs/{job_id}/
+            JobProc->>DB: Query job status
+            DB-->>JobProc: Current status
+            JobProc-->>Gateway: Job status
+            Gateway-->>Frontend: Status update
+            Frontend-->>User: Display progress
+
+            Worker->>Michigan: GET /api/v2/jobs/{external_job_id}/status
+            Michigan-->>Worker: Status: running/completed
+            Worker->>JobProc: Update status
+            JobProc->>DB: UPDATE status
+        end
+    end
+
+    %% Completion
+    rect rgb(240, 255, 240)
+        Note over Worker,User: 6. Job Completion Phase
+        Michigan->>Worker: Job completed notification
+        Worker->>Michigan: GET /api/v2/jobs/{external_job_id}/results
+        Michigan-->>Worker: Result file URLs
+
+        Worker->>JobProc: POST /jobs/{job_id}/results/
+        JobProc->>DB: Store result metadata
+        DB-->>JobProc: Saved
+
+        Worker->>JobProc: PATCH /jobs/{job_id}/status/
+        JobProc->>DB: UPDATE status = 'completed'
+
+        User->>Frontend: Check job status
+        Frontend->>Gateway: GET /api/jobs/{job_id}/
+        Gateway->>JobProc: GET /jobs/{job_id}/
+        JobProc-->>Gateway: Status: completed
+        Gateway-->>Frontend: Job complete
+        Frontend-->>User: Show download links
+    end
+
+    Note over User,Michigan: ✅ Job Submission Complete with Cloudgene Format Support

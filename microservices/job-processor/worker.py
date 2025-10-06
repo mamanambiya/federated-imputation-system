@@ -25,6 +25,7 @@ REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379')
 SERVICE_REGISTRY_URL = os.getenv('SERVICE_REGISTRY_URL', 'http://service-registry:8002')
 FILE_MANAGER_URL = os.getenv('FILE_MANAGER_URL', 'http://file-manager:8004')
 NOTIFICATION_URL = os.getenv('NOTIFICATION_URL', 'http://notification:8005')
+USER_SERVICE_URL = os.getenv('USER_SERVICE_URL', 'http://user-service:8001')
 
 # Database setup
 engine = create_engine(DATABASE_URL)
@@ -56,35 +57,123 @@ class ExternalServiceClient:
             raise ValueError(f"Unsupported service type: {service_type}")
     
     async def _submit_michigan_job(self, service_info: Dict[str, Any], job_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Submit job to Michigan Imputation Server."""
+        """Submit job to Michigan Imputation Server (including H3Africa)."""
         try:
-            # Michigan-specific job submission
             base_url = service_info['base_url'].rstrip('/')
             submit_url = f"{base_url}/api/v2/jobs/submit"
-            
-            # Prepare job parameters
-            params = {
-                'input-files': job_data['input_file_url'],
-                'input-format': job_data['input_format'],
-                'reference-panel': job_data['reference_panel'],
-                'build': job_data['build'],
-                'phasing': 'true' if job_data['phasing'] else 'false',
-                'population': job_data.get('population', 'mixed')
+
+            # Get USER's API token from user service
+            user_id = job_data.get('user_id')
+            service_id = service_info.get('id')
+
+            logger.info(f"Michigan API: Fetching credentials for user {user_id}, service {service_id}")
+
+            # Fetch user's personal credentials
+            async with httpx.AsyncClient() as user_client:
+                cred_response = await user_client.get(
+                    f"{USER_SERVICE_URL}/internal/users/{user_id}/service-credentials/{service_id}"
+                )
+                cred_response.raise_for_status()
+                user_cred = cred_response.json()
+
+            if not user_cred.get('has_credential'):
+                error_msg = f"No credentials configured for service {service_info.get('name')}. Please add your API token in Settings → Service Credentials."
+                logger.error(f"Michigan API: {error_msg}")
+                return {
+                    'error': error_msg,
+                    'status': 'failed',
+                    'requires_user_action': True
+                }
+
+            # Use user's personal API token
+            api_token = user_cred.get('api_token')
+            if not api_token:
+                logger.error(f"Michigan API: User {user_id} has credential but no API token")
+                return {
+                    'error': 'Invalid credential configuration. Please reconfigure your API token.',
+                    'status': 'failed'
+                }
+
+            # Download input file from file manager
+            logger.info(f"Michigan API: Downloading input file from {job_data['input_file_url']}")
+            file_response = await self.client.get(job_data['input_file_url'])
+            file_response.raise_for_status()
+            file_content = file_response.content
+            logger.info(f"Michigan API: Downloaded {len(file_content)} bytes")
+
+            # Prepare multipart form data with file and parameters
+            files = {
+                'input-files': ('input.vcf.gz', file_content, 'application/gzip')
             }
-            
-            # Submit job
-            response = await self.client.post(submit_url, data=params)
+
+            # Fetch reference panel details to get Cloudgene app ID
+            # For Michigan API, we need the panel_id field which contains the Cloudgene format
+            # e.g., "apps@h3africa-v6hc-s@1.0.0" not the database ID
+            async with httpx.AsyncClient() as panel_client:
+                panel_response = await panel_client.get(
+                    f"{SERVICE_REGISTRY_URL}/panels/{job_data['reference_panel']}"
+                )
+                panel_response.raise_for_status()
+                panel_info = panel_response.json()
+
+            panel_identifier = panel_info.get('name')  # Use panel name which should contain Cloudgene format
+
+            logger.info(f"Michigan API: Using reference panel '{panel_identifier}' (from panel ID: {job_data['reference_panel']})")
+
+            # Michigan API parameters
+            data = {
+                'input-format': job_data['input_format'],
+                'refpanel': panel_identifier,  # Cloudgene app format: apps@{app-id}@{version}
+                'build': job_data['build'],
+                'phasing': 'eagle' if job_data.get('phasing', True) else 'no_phasing',
+                'population': job_data.get('population', 'mixed'),
+                'mode': 'imputation'
+            }
+
+            # Michigan API uses X-Auth-Token header for authentication
+            headers = {
+                'X-Auth-Token': api_token
+            }
+
+            logger.info(f"Michigan API: Submitting job to {submit_url}")
+            logger.info(f"Michigan API: Parameters - panel: {data['refpanel']}, build: {data['build']}, phasing: {data['phasing']}")
+
+            # Submit job with authentication and extended timeout for file upload
+            response = await self.client.post(
+                submit_url,
+                files=files,
+                data=data,
+                headers=headers,
+                timeout=httpx.Timeout(connect=60.0, read=300.0)  # 5min for upload
+            )
             response.raise_for_status()
-            
+
             result = response.json()
+            external_job_id = result.get('id') or result.get('jobId')
+
+            logger.info(f"Michigan API: Job submitted successfully - External Job ID: {external_job_id}")
+
             return {
-                'external_job_id': result.get('id'),
+                'external_job_id': external_job_id,
                 'status': 'submitted',
                 'service_response': result
             }
-            
+
+        except httpx.HTTPStatusError as e:
+            error_msg = f"HTTP {e.response.status_code}"
+            try:
+                error_detail = e.response.json()
+                error_msg += f": {error_detail}"
+            except:
+                error_msg += f": {e.response.text[:200]}"
+
+            logger.error(f"Michigan job submission failed: {error_msg}")
+            return {
+                'error': error_msg,
+                'status': 'failed'
+            }
         except Exception as e:
-            logger.error(f"Michigan job submission failed: {e}")
+            logger.error(f"Michigan job submission failed: {str(e)}")
             return {
                 'error': str(e),
                 'status': 'failed'
@@ -187,27 +276,53 @@ class ExternalServiceClient:
     
     async def _check_michigan_status(self, service_info: Dict[str, Any], external_job_id: str) -> Dict[str, Any]:
         """Check Michigan job status."""
-        base_url = service_info['base_url'].rstrip('/')
-        status_url = f"{base_url}/api/v2/jobs/{external_job_id}/status"
-        
-        response = await self.client.get(status_url)
-        response.raise_for_status()
-        
-        result = response.json()
-        status_mapping = {
-            'waiting': 'queued',
-            'running': 'running',
-            'success': 'completed',
-            'error': 'failed',
-            'canceled': 'cancelled'
-        }
-        
-        return {
-            'status': status_mapping.get(result.get('state', 'unknown'), 'unknown'),
-            'progress': result.get('progress', 0),
-            'message': result.get('message', ''),
-            'service_response': result
-        }
+        try:
+            base_url = service_info['base_url'].rstrip('/')
+            status_url = f"{base_url}/api/v2/jobs/{external_job_id}/status"
+
+            # Get API token for authenticated status check
+            api_token = service_info.get('api_config', {}).get('api_token')
+            headers = {'X-Auth-Token': api_token} if api_token else {}
+
+            response = await self.client.get(status_url, headers=headers)
+            response.raise_for_status()
+
+            result = response.json()
+
+            # Michigan status mapping to our internal states
+            status_mapping = {
+                'waiting': 'queued',
+                'running': 'running',
+                'success': 'completed',
+                'error': 'failed',
+                'canceled': 'cancelled',
+                'complete': 'completed'  # Some Michigan servers use 'complete'
+            }
+
+            external_status = result.get('state', 'unknown').lower()
+            internal_status = status_mapping.get(external_status, 'unknown')
+
+            # Extract progress (Michigan often provides positionInQueue or executionTime)
+            progress = result.get('progress', 0)
+            if progress == 0 and internal_status == 'running':
+                # If no progress but running, estimate based on time
+                progress = 50
+
+            return {
+                'status': internal_status,
+                'progress': progress,
+                'message': result.get('message', '') or external_status,
+                'service_response': result
+            }
+
+        except Exception as e:
+            logger.error(f"Michigan status check failed: {e}")
+            return {
+                'status': 'error',
+                'progress': 0,
+                'message': str(e),
+                'service_response': {}
+            }
     
     async def _check_ga4gh_status(self, service_info: Dict[str, Any], external_job_id: str) -> Dict[str, Any]:
         """Check GA4GH job status."""
@@ -240,10 +355,10 @@ class ExternalServiceClient:
         """Check DNASTACK job status."""
         base_url = service_info['base_url'].rstrip('/')
         status_url = f"{base_url}/api/jobs/{external_job_id}"
-        
+
         response = await self.client.get(status_url)
         response.raise_for_status()
-        
+
         result = response.json()
         status_mapping = {
             'pending': 'queued',
@@ -252,13 +367,96 @@ class ExternalServiceClient:
             'failed': 'failed',
             'cancelled': 'cancelled'
         }
-        
+
         return {
             'status': status_mapping.get(result.get('status', 'unknown'), 'unknown'),
             'progress': result.get('progress', 0),
             'message': result.get('message', ''),
             'service_response': result
         }
+
+    async def download_job_results(self, service_info: Dict[str, Any], external_job_id: str) -> bytes:
+        """Download results from external imputation service."""
+        service_type = service_info.get('api_type', 'michigan')
+
+        if service_type == 'michigan':
+            return await self._download_michigan_results(service_info, external_job_id)
+        elif service_type == 'ga4gh':
+            return await self._download_ga4gh_results(service_info, external_job_id)
+        elif service_type == 'dnastack':
+            return await self._download_dnastack_results(service_info, external_job_id)
+        else:
+            raise ValueError(f"Unsupported service type: {service_type}")
+
+    async def _download_michigan_results(self, service_info: Dict[str, Any], external_job_id: str) -> bytes:
+        """Download results from Michigan Imputation Server."""
+        try:
+            base_url = service_info['base_url'].rstrip('/')
+            results_url = f"{base_url}/api/v2/jobs/{external_job_id}/results"
+
+            # Get API token for authenticated download
+            api_token = service_info.get('api_config', {}).get('api_token')
+            headers = {'X-Auth-Token': api_token} if api_token else {}
+
+            logger.info(f"Michigan API: Downloading results from {results_url}")
+
+            # Michigan returns a zip file with imputed results
+            response = await self.client.get(
+                results_url,
+                headers=headers,
+                timeout=httpx.Timeout(connect=30.0, read=600.0)  # 10min for download
+            )
+            response.raise_for_status()
+
+            results_data = response.content
+            logger.info(f"Michigan API: Downloaded {len(results_data)} bytes")
+
+            return results_data
+
+        except Exception as e:
+            logger.error(f"Michigan results download failed: {e}")
+            raise
+
+    async def _download_ga4gh_results(self, service_info: Dict[str, Any], external_job_id: str) -> bytes:
+        """Download results from GA4GH WES service."""
+        try:
+            base_url = service_info['base_url'].rstrip('/')
+
+            # First get run details to find output files
+            run_url = f"{base_url}/ga4gh/wes/v1/runs/{external_job_id}"
+            run_response = await self.client.get(run_url)
+            run_response.raise_for_status()
+
+            run_data = run_response.json()
+            outputs = run_data.get('outputs', {})
+
+            # Download the main output file
+            if outputs:
+                output_url = outputs.get('output_file') or list(outputs.values())[0]
+                response = await self.client.get(output_url)
+                response.raise_for_status()
+                return response.content
+            else:
+                raise ValueError("No output files found in GA4GH run results")
+
+        except Exception as e:
+            logger.error(f"GA4GH results download failed: {e}")
+            raise
+
+    async def _download_dnastack_results(self, service_info: Dict[str, Any], external_job_id: str) -> bytes:
+        """Download results from DNASTACK service."""
+        try:
+            base_url = service_info['base_url'].rstrip('/')
+            results_url = f"{base_url}/api/jobs/{external_job_id}/results"
+
+            response = await self.client.get(results_url)
+            response.raise_for_status()
+
+            return response.content
+
+        except Exception as e:
+            logger.error(f"DNASTACK results download failed: {e}")
+            raise
 
 # Service communication helpers
 async def get_service_info(service_id: int) -> Dict[str, Any]:
@@ -370,6 +568,7 @@ def process_job(self, job_id: str):
         
         # Prepare job data for external service
         job_data = {
+            'user_id': job.user_id,  # ← CRITICAL: Include user_id for credential lookup
             'input_file_url': file_url,
             'input_format': job.input_format,
             'reference_panel': job.reference_panel_id,
@@ -410,6 +609,35 @@ def process_job(self, job_id: str):
             
             # Update local job status
             if external_status == 'completed':
+                # Download results from external service
+                try:
+                    logger.info(f"Job {job_id}: Downloading results from external service")
+                    results_data = asyncio.run(client.download_job_results(service_info, job.external_job_id))
+
+                    # Upload results to file manager
+                    logger.info(f"Job {job_id}: Uploading results to file manager ({len(results_data)} bytes)")
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=600.0)) as fm_client:
+                        files = {'file': ('results.zip', results_data, 'application/zip')}
+                        data = {'job_id': str(job_id), 'file_type': 'output'}
+                        upload_response = await fm_client.post(
+                            f"{FILE_MANAGER_URL}/files/upload",
+                            files=files,
+                            data=data
+                        )
+                        upload_response.raise_for_status()
+                        result_file_info = upload_response.json()
+
+                        # Update job with results file info
+                        job.results_file_id = result_file_info.get('id')
+                        db.commit()
+                        logger.info(f"Job {job_id}: Results file stored with ID {job.results_file_id}")
+
+                except Exception as e:
+                    error_msg = f"Completed but failed to retrieve results: {str(e)}"
+                    logger.error(f"Job {job_id}: {error_msg}")
+                    update_job_status_sync(job_id, 'failed', 100, error_msg)
+                    break
+
                 update_job_status_sync(job_id, 'completed', 100, "Job completed successfully")
                 break
             elif external_status == 'failed':

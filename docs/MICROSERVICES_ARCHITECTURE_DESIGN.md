@@ -167,6 +167,48 @@ federated-imputation-central/
    - System health events
    - User activity tracking
 
+### **Communication Flow Diagram:**
+
+```
+┌──────────┐
+│ Frontend │
+└────┬─────┘
+     │ HTTP/REST
+     ↓
+┌─────────────┐
+│ API Gateway │
+└─────┬───────┘
+      │
+      ├─────→ [User Service]      ──→ PostgreSQL (user_db)
+      │                            ↓
+      ├─────→ [Service Registry]  ──→ PostgreSQL (service_db)
+      │       │                    ↓
+      │       └──→ External APIs (Health Checks)
+      │
+      ├─────→ [Job Processor]     ──→ PostgreSQL (job_db)
+      │       │                    │
+      │       ├──→ Celery Queue ───┤
+      │       │                    ↓
+      │       └──→ Worker Pool ────→ External Services (H3Africa, etc)
+      │
+      ├─────→ [File Manager]      ──→ PostgreSQL (file_db)
+      │       │                    ↓
+      │       └──→ S3/Local Storage
+      │
+      ├─────→ [Notification]      ──→ PostgreSQL (notif_db)
+      │       │                    │
+      │       └──→ WebSocket ──────→ Frontend (Real-time)
+      │
+      └─────→ [Monitoring]        ──→ InfluxDB (metrics)
+              │                    ↓
+              └──→ Prometheus/Grafana
+
+Message Queue (Redis/RabbitMQ):
+  job.status.updated  ────→  Notification Service
+  file.upload.done    ────→  Job Processor
+  service.health      ────→  Monitoring
+```
+
 ### **Message Queue Architecture:**
 ```
 Redis Streams / RabbitMQ
@@ -180,10 +222,42 @@ Redis Streams / RabbitMQ
 ## 🛡️ Security Architecture
 
 ### **Authentication Flow:**
-1. User authenticates via API Gateway
-2. JWT token issued by User Management Service
-3. Token validated by API Gateway for all requests
-4. Service-to-service communication uses internal tokens
+
+```
+┌──────┐                                      ┌────────────────┐
+│ User │                                      │  User Service  │
+└──┬───┘                                      └────────┬───────┘
+   │                                                   │
+   │ 1. POST /auth/login                              │
+   │    {username, password}                          │
+   ├──────────────────────────────────────────────────→
+   │                                                   │
+   │                          2. Validate credentials │
+   │                             Check password hash  │
+   │                                                   │
+   │ 3. Return JWT Token                              │
+   │    {access_token, refresh_token}                 │
+   │←──────────────────────────────────────────────────
+   │
+   │ 4. API Request with token                 ┌─────────────┐
+   │    Authorization: Bearer <JWT>            │ API Gateway │
+   ├──────────────────────────────────────────→└──────┬──────┘
+   │                                                   │
+   │                                    5. Validate JWT
+   │                                       Decode & verify
+   │                                                   │
+   │                                    6. Route to service
+   │                                       with user context
+   │                                                   ↓
+   │                                          [Microservice]
+   │                                                   │
+   │ 7. Response                                       │
+   │←──────────────────────────────────────────────────
+
+Service-to-Service Authentication:
+  [Service A] ──→ Internal Token ──→ [Service B]
+             (or mTLS certificates)
+```
 
 ### **Authorization:**
 - Role-based access control (RBAC)

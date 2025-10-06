@@ -11,7 +11,9 @@ from typing import List, Optional, Dict, Any
 from enum import Enum
 
 import httpx
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, UploadFile, File, Form
+import jwt
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, UploadFile, File, Form, Header
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, Float, JSON, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
@@ -28,10 +30,17 @@ logger = logging.getLogger(__name__)
 # Configuration
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@postgres:5432/job_processing_db')
 REDIS_URL = os.getenv('REDIS_URL', 'redis://redis:6379')
-USER_SERVICE_URL = os.getenv('USER_SERVICE_URL', 'http://user-service:8001')
+USER_SERVICE_URL = os.getenv('USER_SERVICE_URL', 'http://user-service:8001')  # For credential validation
 SERVICE_REGISTRY_URL = os.getenv('SERVICE_REGISTRY_URL', 'http://service-registry:8002')
 FILE_MANAGER_URL = os.getenv('FILE_MANAGER_URL', 'http://file-manager:8004')
 NOTIFICATION_URL = os.getenv('NOTIFICATION_URL', 'http://notification:8005')
+
+# JWT Configuration (must match user-service)
+JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key-change-in-production')
+JWT_ALGORITHM = 'HS256'
+
+# Security
+security = HTTPBearer()
 
 # Database setup
 engine = create_engine(DATABASE_URL)
@@ -83,6 +92,7 @@ class ImputationJob(Base):
     input_file_id = Column(Integer)  # Reference to file in file-manager service
     input_file_name = Column(String(255))
     input_file_size = Column(Integer)
+    results_file_id = Column(Integer)  # Reference to results file in file-manager service
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
@@ -137,11 +147,33 @@ class JobTemplate(Base):
 # Create tables
 Base.metadata.create_all(bind=engine)
 
+# JWT Helper Functions
+def get_user_id_from_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> int:
+    """
+    Extract user_id from JWT token.
+    This is used as a dependency to authenticate requests.
+    """
+    try:
+        token = credentials.credentials
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id: int = payload.get("user_id")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid token: missing user_id")
+        return user_id
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+    except Exception as e:
+        logger.error(f"Token verification error: {e}")
+        raise HTTPException(status_code=401, detail="Authentication failed")
+
 # FastAPI app
 app = FastAPI(
     title="Job Processing Service",
     description="Job lifecycle management and execution",
-    version="1.0.0"
+    version="1.0.0",
+    redirect_slashes=False  # Disable automatic redirect to prevent form data loss
 )
 
 # Dependency to get database session
@@ -336,29 +368,107 @@ async def update_job_status(
 async def health_check():
     return {"status": "healthy", "service": "job-processor", "timestamp": datetime.utcnow()}
 
+@app.post("/jobs/", response_model=JobResponse)
 @app.post("/jobs", response_model=JobResponse)
 async def create_job(
     name: str = Form(...),
     description: str = Form(None),
-    service_id: int = Form(...),
-    reference_panel_id: int = Form(...),
+    service_id: str = Form(...),  # Changed to str to support slugs
+    reference_panel_id: str = Form(...),  # Changed to str to support slugs
     input_format: str = Form('vcf'),
     build: str = Form('hg38'),
     phasing: bool = Form(True),
     population: str = Form(None),
     input_file: UploadFile = File(...),
-    user_id: int = 123,  # This would come from JWT token in real implementation
+    user_id: int = Depends(get_user_id_from_token),  # Extract user_id from JWT token
     db: Session = Depends(get_db)
 ):
-    """Create a new imputation job."""
-    
-    # Create job record
+    """
+    Create a new imputation job.
+
+    Supports both numeric IDs and slugs for service_id and reference_panel_id:
+    - service_id: Can be "1" or "h3africa-ilifu"
+    - reference_panel_id: Can be "1" or "h3africa-v6"
+    """
+
+    # Resolve service_id (support both numeric ID and slug)
+    async with httpx.AsyncClient() as client:
+        try:
+            service_response = await client.get(f"{SERVICE_REGISTRY_URL}/services/{service_id}")
+            service_response.raise_for_status()
+            service_data = service_response.json()
+            resolved_service_id = service_data['id']  # Get numeric ID
+            logger.info(f"Resolved service '{service_id}' to ID {resolved_service_id}")
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Service '{service_id}' not found. Please check the service ID or slug."
+            )
+
+    # Resolve reference_panel_id (support both numeric ID and slug)
+    async with httpx.AsyncClient() as client:
+        try:
+            panels_response = await client.get(f"{SERVICE_REGISTRY_URL}/reference-panels")
+            panels_response.raise_for_status()
+            panels = panels_response.json()
+
+            # Find panel by ID or slug
+            resolved_panel = None
+            if reference_panel_id.isdigit():
+                resolved_panel = next((p for p in panels if p['id'] == int(reference_panel_id)), None)
+            else:
+                resolved_panel = next((p for p in panels if p['slug'] == reference_panel_id), None)
+
+            if not resolved_panel:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Reference panel '{reference_panel_id}' not found. Please check the panel ID or slug."
+                )
+
+            resolved_panel_id = resolved_panel['id']
+            logger.info(f"Resolved panel '{reference_panel_id}' to ID {resolved_panel_id}")
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to lookup reference panel"
+            )
+
+    # OPTIONAL: Validate user has credentials for the selected service
+    # Note: This is currently set to warning-only mode for testing/development
+    # In production, you may want to make this a hard requirement
+    async with httpx.AsyncClient() as client:
+        try:
+            cred_response = await client.get(
+                f"{USER_SERVICE_URL}/internal/users/{user_id}/service-credentials/{resolved_service_id}"
+            )
+            cred_response.raise_for_status()
+            user_cred = cred_response.json()
+
+            if not user_cred.get('has_credential'):
+                logger.warning(
+                    f"User {user_id} submitting job without configured credentials for service {resolved_service_id}. "
+                    f"Job will proceed but may fail during execution if service requires authentication."
+                )
+                # Allow job submission to proceed
+                # In production, you might want to:
+                # - Make this a hard error
+                # - Or allow only for services that don't require auth
+
+            elif not user_cred.get('is_verified'):
+                logger.warning(f"User {user_id} using unverified credential for service {resolved_service_id}")
+
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"Could not verify user credentials for service {resolved_service_id}: {e}. Allowing job submission to proceed.")
+            # Allow job submission even if credential check fails
+            # This allows testing without setting up credentials
+
+    # Create job record (use resolved numeric IDs)
     job = ImputationJob(
         user_id=user_id,
         name=name,
         description=description,
-        service_id=service_id,
-        reference_panel_id=reference_panel_id,
+        service_id=resolved_service_id,  # Use resolved numeric ID
+        reference_panel_id=resolved_panel_id,  # Use resolved numeric ID
         input_format=input_format,
         build=build,
         phasing=phasing,
@@ -414,7 +524,7 @@ async def create_job(
 async def list_jobs(
     status: Optional[str] = None,
     service_id: Optional[int] = None,
-    user_id: int = 123,  # This would come from JWT token
+    user_id: int = Depends(get_user_id_from_token),  # Extract user_id from JWT token
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db)
@@ -454,6 +564,38 @@ async def list_jobs(
         )
         for job in jobs
     ]
+
+@app.get("/jobs/stats")
+async def get_job_stats(db: Session = Depends(get_db)):
+    """Get aggregated job statistics for dashboard."""
+    from sqlalchemy import func
+
+    # Get total count
+    total = db.query(func.count(ImputationJob.id)).scalar() or 0
+
+    # Get counts by status
+    completed = db.query(func.count(ImputationJob.id)).filter(
+        ImputationJob.status == JobStatus.COMPLETED
+    ).scalar() or 0
+
+    running = db.query(func.count(ImputationJob.id)).filter(
+        ImputationJob.status == JobStatus.RUNNING
+    ).scalar() or 0
+
+    failed = db.query(func.count(ImputationJob.id)).filter(
+        ImputationJob.status == JobStatus.FAILED
+    ).scalar() or 0
+
+    # Calculate success rate
+    success_rate = (completed / total * 100) if total > 0 else 0.0
+
+    return {
+        "total": total,
+        "completed": completed,
+        "running": running,
+        "failed": failed,
+        "success_rate": round(success_rate, 2)
+    }
 
 @app.get("/jobs/{job_id}", response_model=JobResponse)
 async def get_job(job_id: str, db: Session = Depends(get_db)):
@@ -511,7 +653,7 @@ async def get_job_status_updates(job_id: str, db: Session = Depends(get_db)):
     updates = db.query(JobStatusUpdate).filter(
         JobStatusUpdate.job_id == job_id
     ).order_by(JobStatusUpdate.timestamp.desc()).all()
-    
+
     return [
         JobStatusUpdateResponse(
             id=update.id,
@@ -524,6 +666,65 @@ async def get_job_status_updates(job_id: str, db: Session = Depends(get_db)):
         )
         for update in updates
     ]
+
+@app.get("/jobs/{job_id}/results")
+async def download_job_results(job_id: str, db: Session = Depends(get_db)):
+    """
+    Download job results file.
+
+    Returns a redirect to the file download URL or file metadata.
+    """
+    job = db.query(ImputationJob).filter(ImputationJob.id == job_id).first()
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job is not completed. Current status: {job.status}"
+        )
+
+    if not job.results_file_id:
+        raise HTTPException(
+            status_code=404,
+            detail="Results file not available. The job may have completed without generating results."
+        )
+
+    # Get download URL from file manager
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{FILE_MANAGER_URL}/files/{job.results_file_id}"
+            )
+            response.raise_for_status()
+
+            file_info = response.json()
+
+            # Return file information with download URL
+            return {
+                "job_id": str(job.id),
+                "job_name": job.name,
+                "file_id": job.results_file_id,
+                "filename": file_info.get('filename', 'results.zip'),
+                "file_size": file_info.get('file_size', 0),
+                "download_url": f"{FILE_MANAGER_URL}/files/{job.results_file_id}/download",
+                "created_at": file_info.get('created_at'),
+                "message": "Results ready for download"
+            }
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Failed to get results file info: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve results file information"
+        )
+    except Exception as e:
+        logger.error(f"Error retrieving results: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving results: {str(e)}"
+        )
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8003, reload=True)

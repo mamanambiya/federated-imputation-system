@@ -569,17 +569,93 @@ async def get_overall_health(db: Session = Depends(get_db)):
         last_updated=datetime.utcnow()
     )
 
+@app.get("/dashboard/stats/")
+@app.get("/dashboard/stats")
+async def get_dashboard_stats(db: Session = Depends(get_db)):
+    """
+    Get comprehensive dashboard statistics.
+    Aggregates job stats, service health, and recent jobs.
+    """
+    import httpx
+
+    # Initialize default response structure
+    dashboard_data = {
+        "job_stats": {
+            "total": 0,
+            "completed": 0,
+            "running": 0,
+            "failed": 0,
+            "success_rate": 0.0
+        },
+        "service_stats": {
+            "available_services": 0,
+            "accessible_services": 0
+        },
+        "recent_jobs": [],
+        "status": "success"
+    }
+
+    try:
+        # Fetch job statistics from job-processor
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            try:
+                job_response = await client.get("http://job-processor:8003/jobs/stats")
+                if job_response.status_code == 200:
+                    job_data = job_response.json()
+                    dashboard_data["job_stats"] = job_data
+            except:
+                logger.warning("Could not fetch job stats from job-processor")
+
+            # Fetch recent jobs (last 5)
+            try:
+                recent_response = await client.get("http://job-processor:8003/jobs?limit=5")
+                if recent_response.status_code == 200:
+                    dashboard_data["recent_jobs"] = recent_response.json()
+            except:
+                logger.warning("Could not fetch recent jobs from job-processor")
+
+            # Get service stats from service-registry
+            try:
+                services_response = await client.get("http://service-registry:8002/services")
+                if services_response.status_code == 200:
+                    services = services_response.json()
+                    total_services = len(services)
+                    online_services = sum(1 for s in services if s.get('is_available', False))
+                    dashboard_data["service_stats"] = {
+                        "available_services": total_services,
+                        "accessible_services": online_services
+                    }
+                else:
+                    raise Exception("Service registry unavailable")
+            except:
+                logger.warning("Could not fetch services from service-registry, using fallback")
+                # Fallback to health check data
+                health_records = db.query(ServiceHealth).order_by(ServiceHealth.checked_at.desc()).limit(6).all()
+                if health_records:
+                    available = sum(1 for h in health_records if h.status == 'healthy')
+                    dashboard_data["service_stats"] = {
+                        "available_services": len(health_records),
+                        "accessible_services": available
+                    }
+
+    except Exception as e:
+        logger.error(f"Error aggregating dashboard stats: {e}")
+        dashboard_data["status"] = "fallback"
+        dashboard_data["message"] = "Using cached or partial data"
+
+    return dashboard_data
+
 @app.get("/health/services", response_model=List[ServiceHealthResponse])
 async def get_services_health(db: Session = Depends(get_db)):
     """Get health status of all services."""
     health_results = await health_checker.check_all_services()
-    
+
     # Store results in database
     for health in health_results:
         health_record = ServiceHealth(**health)
         db.add(health_record)
     db.commit()
-    
+
     return [ServiceHealthResponse(**health) for health in health_results]
 
 @app.get("/metrics/system", response_model=SystemMetricsResponse)

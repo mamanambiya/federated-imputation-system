@@ -1,0 +1,115 @@
+graph TB
+    subgraph "Frontend Layer"
+        User["👤 User"]
+        JobForm["📝 Job Submission Form<br/><br/>NewJob.tsx<br/>Lines 286-287<br/><br/>✅ Fixed Field Names:<br/>service_id<br/>reference_panel_id"]
+    end
+
+    subgraph "Gateway + API Layer"
+        Gateway["⚡ API Gateway<br/>Port 8000<br/><br/>Routes to Job Processor"]
+    end
+
+    subgraph "Job Processing Service"
+        JobAPI["📥 Job API Endpoint<br/>POST /jobs<br/><br/>FastAPI Form Validation:<br/>- service_id: str<br/>- reference_panel_id: str<br/>- input_file: UploadFile"]
+
+        JobDB["💾 Job Database<br/>job_processing_db<br/><br/>CREATE imputation_job<br/>status: 'pending'"]
+
+        TaskQueue["📤 Task Queue<br/><br/>Enqueue Celery task<br/>process_job(job_id)"]
+    end
+
+    subgraph "Service Registry"
+        PanelAPI["📋 Panel API<br/>GET /panels/{id}<br/><br/>Returns Cloudgene format"]
+
+        PanelDB[("🗄️ Panel Database<br/>service_registry_db<br/><br/>reference_panels table<br/><br/>ID: 2<br/>name: apps@h3africa-v6hc-s@1.0.0<br/>service_id: 7")]
+    end
+
+    subgraph "Celery Worker"
+        Worker["🔄 Worker Process<br/><br/>worker.py<br/>process_job()"]
+
+        FetchPanel["🔍 Fetch Panel Details<br/><br/>GET /panels/{reference_panel}<br/><br/>Extract 'name' field<br/>→ Cloudgene format"]
+
+        BuildParams["🔧 Build Michigan API Params<br/><br/>data = {<br/>  'input-format': 'vcf',<br/>  'refpanel': panel_identifier,<br/>  'build': 'hg38',<br/>  'phasing': 'eagle',<br/>  'population': 'mixed',<br/>  'mode': 'imputation'<br/>}"]
+    end
+
+    subgraph "Michigan Imputation Server"
+        MichiganEndpoint["🧬 Michigan API<br/>POST /api/v2/jobs/submit/imputationserver2<br/><br/>https://impute.afrigen-d.org"]
+
+        MichiganValidation["✅ Cloudgene Validation<br/><br/>Expects format:<br/>apps@{app-id}@{version}<br/><br/>Valid Examples:<br/>• apps@h3africa-v6hc-s@1.0.0<br/>• apps@1000g-phase-3-v5@1.0.0<br/><br/>Invalid:<br/>• Database IDs (2, 7)<br/>• Plain names (h3africa, 1kg)"]
+
+        MichiganQueue["⏳ Michigan Job Queue<br/><br/>Job queued for processing<br/>Returns: external_job_id"]
+    end
+
+    subgraph "Response Flow"
+        UpdateStatus["📊 Update Job Status<br/><br/>PATCH /jobs/{id}/status<br/>status: 'queued'<br/>external_job_id: {michigan_id}"]
+
+        MonitorJob["🔄 Monitor Job Progress<br/><br/>Periodic polling:<br/>GET /api/v2/jobs/{external_job_id}/status"]
+
+        ResultRetrieval["📥 Retrieve Results<br/><br/>When completed:<br/>GET /api/v2/jobs/{external_job_id}/results<br/><br/>Download imputed VCF files"]
+    end
+
+    %% User interaction
+    User -->|"1. Fill form"| JobForm
+    JobForm -->|"2. Submit<br/>FormData"| Gateway
+
+    %% Gateway routing
+    Gateway -->|"3. Route POST /api/jobs/"| JobAPI
+
+    %% Job creation
+    JobAPI -->|"4. Validate fields"| JobAPI
+    JobAPI -->|"5. Create job record"| JobDB
+    JobDB -->|"6. Job ID created"| TaskQueue
+    TaskQueue -->|"7. Enqueue task"| Worker
+
+    %% Worker processing
+    Worker -->|"8. Get job details"| JobDB
+    Worker -->|"9. Fetch panel info<br/>GET /panels/2"| PanelAPI
+
+    %% Panel lookup
+    PanelAPI -->|"10. Query panel"| PanelDB
+    PanelDB -->|"11. Return panel data<br/>name: apps@h3africa-v6hc-s@1.0.0"| PanelAPI
+    PanelAPI -->|"12. Cloudgene format"| FetchPanel
+
+    %% Build Michigan request
+    FetchPanel -->|"13. Extract panel identifier"| BuildParams
+    BuildParams -->|"14. Prepare API request"| Worker
+
+    %% Submit to Michigan
+    Worker -->|"15. POST multipart/form-data<br/>refpanel: apps@h3africa-v6hc-s@1.0.0"| MichiganEndpoint
+
+    %% Michigan processing
+    MichiganEndpoint -->|"16. Validate Cloudgene format"| MichiganValidation
+    MichiganValidation -->|"17. ✅ Format valid"| MichiganQueue
+    MichiganQueue -->|"18. Return external_job_id"| Worker
+
+    %% Status update
+    Worker -->|"19. Update job status"| UpdateStatus
+    UpdateStatus -->|"20. Store external_job_id"| JobDB
+
+    %% Monitoring loop
+    Worker -->|"21. Poll status"| MonitorJob
+    MonitorJob -->|"22. Check Michigan API"| MichiganEndpoint
+    MichiganEndpoint -->|"23. Status: queued/running/completed"| Worker
+
+    %% Result retrieval
+    MichiganEndpoint -->|"24. Job completed"| ResultRetrieval
+    ResultRetrieval -->|"25. Download results"| Worker
+    Worker -->|"26. Store results + update status"| JobDB
+    JobDB -->|"27. Notify user"| User
+
+    %% Critical fix callout
+    style JobForm fill:#c8e6c9,stroke:#4caf50,stroke-width:3px
+    style PanelDB fill:#c8e6c9,stroke:#4caf50,stroke-width:3px
+    style MichiganValidation fill:#fff9c4,stroke:#fbc02d,stroke-width:3px
+    style BuildParams fill:#c8e6c9,stroke:#4caf50,stroke-width:3px
+
+    %% Legend
+    classDef fixed fill:#c8e6c9,stroke:#4caf50,stroke-width:2px
+    classDef validation fill:#fff9c4,stroke:#fbc02d,stroke-width:2px
+
+    %% Annotations
+    note1["⚠️ CRITICAL FIX #1:<br/>Field names must match:<br/>service_id ✅<br/>reference_panel_id ✅<br/><br/>Previously caused HTTP 422"]
+    note2["⚠️ CRITICAL FIX #2:<br/>Panel name must be<br/>Cloudgene format:<br/>apps@{id}@{version}<br/><br/>Database stores this format"]
+    note3["✅ VALIDATION POINT:<br/>Michigan server rejects<br/>non-Cloudgene formats<br/><br/>Our implementation ensures<br/>correct format is sent"]
+
+    note1 -.->|"Applies to"| JobForm
+    note2 -.->|"Applies to"| PanelDB
+    note3 -.->|"Validates"| MichiganValidation

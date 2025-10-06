@@ -121,3 +121,4 @@ docker-compose.override.local.yml
 # Additional security files
 *.p12
 *.pfx
+dev_docs/secrets.sh

@@ -4,6 +4,69 @@
 
 The Federated Genomic Imputation Platform is a **dynamic system** with no hardcoded services. Administrators must register imputation services through the API or web interface.
 
+### Service Management Flow
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                     SERVICE LIFECYCLE                          │
+└────────────────────────────────────────────────────────────────┘
+
+1. SERVICE REGISTRATION
+   ┌───────────┐
+   │   Admin   │
+   └─────┬─────┘
+         │
+         │ POST /api/services/
+         │ {name, base_url, api_type, ...}
+         ↓
+   ┌─────────────────┐
+   │ Service Registry│
+   │   Port 8002     │
+   └────────┬────────┘
+            │
+            ↓
+   [PostgreSQL service_db]
+   Service Created ✅
+
+2. HEALTH MONITORING (Automated - Every 5 min)
+   ┌─────────────────┐
+   │ Service Registry│
+   │  Health Check   │
+   └────────┬────────┘
+            │
+            │ GET {base_url}/health
+            ↓
+   ┌──────────────────┐
+   │ External Service │
+   │  (H3Africa, etc) │
+   └────────┬─────────┘
+            │
+            ↓
+   Update service status
+   • healthy ✅
+   • unhealthy ❌
+   • timeout ⏱️
+
+3. USER CONSUMPTION
+   ┌──────┐
+   │ User │
+   └──┬───┘
+      │
+      │ 1. View available services
+      ↓
+   GET /api/services/
+   Returns: Active + Healthy services
+      │
+      │ 2. Submit job to selected service
+      ↓
+   POST /api/jobs/
+   {service_id, input_file, ...}
+      │
+      ↓
+   Worker submits to external service
+   using user's credentials
+```
+
 ## Current State
 
 - **Registered Services**: 0
@@ -52,6 +115,39 @@ A service management UI will be added in future releases to allow:
 ## Service Types
 
 The platform supports multiple imputation service types:
+
+### API Type Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│               FEDERATED IMPUTATION PLATFORM                 │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐  │
+│  │           Service Registry (Port 8002)              │  │
+│  │  • Discovers services                                │  │
+│  │  • Tracks health                                     │  │
+│  │  • Routes requests                                   │  │
+│  └──────┬──────────────┬──────────────┬────────────────┘  │
+│         │              │              │                    │
+└─────────┼──────────────┼──────────────┼────────────────────┘
+          │              │              │
+          ↓              ↓              ↓
+    ┌──────────┐   ┌──────────┐   ┌──────────┐
+    │ MICHIGAN │   │  GA4GH   │   │ DNASTACK │
+    │   API    │   │   WES    │   │  OMICS   │
+    └──────────┘   └──────────┘   └──────────┘
+          │              │              │
+          ↓              ↓              ↓
+    ┌──────────────────────────────────────────┐
+    │        EXTERNAL SERVICES                 │
+    ├──────────────────────────────────────────┤
+    │  • Michigan Imputation Server            │
+    │  • H3Africa (uses Michigan API)          │
+    │  • TOPMed (uses Michigan API)            │
+    │  • Any GA4GH WES compatible service      │
+    │  • DNAstack Workbench                    │
+    └──────────────────────────────────────────┘
+```
 
 ### Michigan API Format
 - **Type**: `michigan`, `h3africa`, `topmed`

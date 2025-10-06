@@ -1,0 +1,99 @@
+graph TB
+    subgraph "Client Layer"
+        Browser["🌐 Web Browser<br/>React Frontend<br/>Port 3000"]
+    end
+
+    subgraph "Gateway Layer"
+        Gateway["⚡ API Gateway<br/>FastAPI<br/>Port 8000<br/><br/>- Request Routing<br/>- Authentication<br/>- Rate Limiting"]
+    end
+
+    subgraph "Microservices Layer"
+        UserService["👤 User Service<br/>Port 8001<br/><br/>- Authentication<br/>- User Management<br/>- Permissions"]
+
+        ServiceRegistry["📋 Service Registry<br/>Port 8002<br/><br/>- Service Discovery<br/>- Health Checks<br/>- Panel Management"]
+
+        JobProcessor["⚙️ Job Processor<br/>Port 8003<br/><br/>- Job Creation<br/>- Status Tracking<br/>- Queue Management"]
+
+        FileManager["📁 File Manager<br/>Port 8004<br/><br/>- File Upload<br/>- Storage<br/>- Downloads"]
+
+        Monitoring["📊 Monitoring<br/>Port 8005<br/><br/>- System Metrics<br/>- Dashboard Stats<br/>- Health Aggregation"]
+    end
+
+    subgraph "Worker Layer"
+        CeleryWorker["🔄 Celery Worker<br/><br/>- Job Processing<br/>- Michigan API Calls<br/>- Result Retrieval"]
+    end
+
+    subgraph "Data Layer"
+        PostgreSQL[("🗄️ PostgreSQL<br/>Port 5432<br/><br/>- user_db<br/>- service_registry_db<br/>- job_processing_db<br/>- file_management_db")]
+
+        Redis[("⚡ Redis<br/>Port 6379<br/><br/>- Task Queue<br/>- Cache<br/>- Sessions")]
+    end
+
+    subgraph "External Services"
+        MichiganAPI["🧬 Michigan Imputation<br/>Server<br/><br/>Afrigen-D / TopMed<br/>Cloudgene API"]
+
+        H3AfricaAPI["🌍 H3Africa<br/>Imputation Server<br/><br/>Custom API"]
+    end
+
+    subgraph "Storage"
+        FileStorage["💾 File Storage<br/><br/>- Input VCF Files<br/>- Result Files<br/>- Temporary Files"]
+    end
+
+    %% Client connections
+    Browser -->|"HTTP/HTTPS<br/>Port 3000"| Gateway
+
+    %% Gateway to services
+    Gateway -->|"/api/auth/*"| UserService
+    Gateway -->|"/api/services/*"| ServiceRegistry
+    Gateway -->|"/api/jobs/*"| JobProcessor
+    Gateway -->|"/api/files/*"| FileManager
+    Gateway -->|"/api/dashboard/*"| Monitoring
+
+    %% Service to database
+    UserService -->|SQL| PostgreSQL
+    ServiceRegistry -->|SQL| PostgreSQL
+    JobProcessor -->|SQL| PostgreSQL
+    FileManager -->|SQL| PostgreSQL
+    Monitoring -->|SQL| PostgreSQL
+
+    %% Job processor to worker
+    JobProcessor -->|"Enqueue Task"| Redis
+    Redis -->|"Task Queue"| CeleryWorker
+
+    %% Worker interactions
+    CeleryWorker -->|"Get Job Details"| JobProcessor
+    CeleryWorker -->|"Get Panel Info"| ServiceRegistry
+    CeleryWorker -->|"Store Files"| FileStorage
+    CeleryWorker -->|"Update Status"| JobProcessor
+
+    %% External API calls
+    CeleryWorker -->|"Submit Job<br/>refpanel: apps@{id}@{ver}"| MichiganAPI
+    CeleryWorker -->|"Submit Job"| H3AfricaAPI
+
+    %% File storage
+    FileManager -->|"Read/Write"| FileStorage
+
+    %% Monitoring connections
+    Monitoring -.->|"Health Checks"| UserService
+    Monitoring -.->|"Health Checks"| ServiceRegistry
+    Monitoring -.->|"Health Checks"| JobProcessor
+    Monitoring -.->|"Health Checks"| FileManager
+
+    %% Service Registry to External Services
+    ServiceRegistry -.->|"Health Check"| MichiganAPI
+    ServiceRegistry -.->|"Health Check"| H3AfricaAPI
+    ServiceRegistry -.->|"Sync Panels"| MichiganAPI
+
+    style Browser fill:#e1f5ff
+    style Gateway fill:#fff3e0
+    style UserService fill:#f3e5f5
+    style ServiceRegistry fill:#e8f5e9
+    style JobProcessor fill:#fff9c4
+    style FileManager fill:#fce4ec
+    style Monitoring fill:#e0f2f1
+    style CeleryWorker fill:#ffe0b2
+    style PostgreSQL fill:#e3f2fd
+    style Redis fill:#ffebee
+    style MichiganAPI fill:#f1f8e9
+    style H3AfricaAPI fill:#f1f8e9
+    style FileStorage fill:#fafafa

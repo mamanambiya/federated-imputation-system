@@ -1,0 +1,6 @@
+{
+  "devDependencies": {
+    "drawio-mcp-server": "^1.2.1",
+    "mcp-excalidraw-server": "^1.0.5"
+  }
+}

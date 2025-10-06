@@ -1,0 +1,134 @@
+sequenceDiagram
+    participant User as 👤 User<br/>(Browser)
+    participant Frontend as 🌐 Frontend<br/>React App
+    participant Gateway as ⚡ API Gateway<br/>Port 8000
+    participant UserSvc as 👤 User Service<br/>Port 8001
+    participant DB as 🗄️ PostgreSQL<br/>(user_db)
+    participant Redis as ⚡ Redis<br/>(Session Store)
+
+    Note over User,Redis: Authentication Flow - Fixed 2025-10-06
+
+    %% Login Flow
+    rect rgb(240, 248, 255)
+        Note over User,DB: 1. Login Phase
+        User->>Frontend: Navigate to http://154.114.10.123:3000
+        Frontend-->>User: Display login form
+
+        User->>Frontend: Enter credentials<br/>(admin / admin123)
+        Frontend->>Gateway: POST /api/auth/login/<br/>{"username":"admin", "password":"admin123"}
+
+        Gateway->>UserSvc: POST /auth/login/<br/>Forward credentials
+        Note right of Gateway: Gateway handles<br/>307 redirect automatically
+
+        UserSvc->>DB: SELECT * FROM users<br/>WHERE username='admin'
+        DB-->>UserSvc: User record with hashed_password
+
+        Note over UserSvc: Verify password using bcrypt
+        UserSvc->>UserSvc: pwd_context.verify(password, hash)
+
+        alt Password Valid
+            UserSvc->>UserSvc: Generate JWT token
+            Note right of UserSvc: JWT payload:<br/>user_id: 2<br/>username: admin<br/>email: admin@example.com<br/>roles: []<br/>exp: 24h from now
+
+            UserSvc->>DB: UPDATE users<br/>SET last_login = now()<br/>WHERE id = 2
+            DB-->>UserSvc: Updated
+
+            UserSvc->>Redis: SETEX session:{token} 86400 {user_data}
+            Redis-->>UserSvc: Session stored
+
+            UserSvc-->>Gateway: 200 OK<br/>{"access_token": "eyJhbGci...", "user": {...}}
+            Gateway-->>Frontend: Token + user data
+            Frontend->>Frontend: Store token in localStorage
+            Frontend-->>User: Redirect to dashboard
+        else Password Invalid
+            UserSvc-->>Gateway: 401 Unauthorized<br/>{"detail": "Invalid credentials"}
+            Gateway-->>Frontend: 401 error
+            Frontend-->>User: Show error message
+        end
+    end
+
+    %% Authenticated Request
+    rect rgb(245, 255, 245)
+        Note over User,DB: 2. Authenticated Request Phase
+        User->>Frontend: Navigate to /jobs/new
+        Frontend->>Frontend: Get token from localStorage
+        Frontend->>Gateway: GET /api/jobs/<br/>Header: Authorization: Bearer {token}
+
+        Gateway->>Gateway: Extract JWT token
+        Gateway->>UserSvc: GET /auth/user/<br/>Header: Authorization: Bearer {token}
+
+        UserSvc->>UserSvc: Verify JWT signature
+        UserSvc->>UserSvc: Check token expiration
+
+        alt Token Valid
+            UserSvc->>Redis: GET session:{token}
+            Redis-->>UserSvc: Session data (if exists)
+
+            alt Session in Redis
+                UserSvc-->>Gateway: 200 OK + User data (from cache)
+            else Session Not in Redis
+                UserSvc->>DB: SELECT * FROM users WHERE id = {user_id}
+                DB-->>UserSvc: User data
+                UserSvc->>Redis: SETEX session:{token} 86400 {user_data}
+                UserSvc-->>Gateway: 200 OK + User data
+            end
+
+            Gateway-->>Frontend: User authenticated
+            Frontend-->>User: Show protected content
+
+        else Token Invalid/Expired
+            UserSvc-->>Gateway: 403 Forbidden<br/>{"detail": "Invalid or expired token"}
+            Gateway-->>Frontend: 403 error
+            Frontend->>Frontend: Clear localStorage
+            Frontend-->>User: Redirect to login
+        end
+    end
+
+    %% Token Refresh
+    rect rgb(255, 255, 240)
+        Note over User,DB: 3. Token Refresh Phase (Optional)
+        Note right of Frontend: Token expires after 24h
+
+        Frontend->>Gateway: POST /api/auth/refresh/<br/>Header: Authorization: Bearer {old_token}
+        Gateway->>UserSvc: POST /auth/refresh/
+
+        UserSvc->>UserSvc: Verify old token structure
+        alt Token Recently Valid (< 48h)
+            UserSvc->>UserSvc: Generate new JWT token
+            UserSvc->>Redis: DEL session:{old_token}
+            UserSvc->>Redis: SETEX session:{new_token} 86400 {user_data}
+            UserSvc-->>Gateway: 200 OK<br/>{"access_token": "new_token..."}
+            Gateway-->>Frontend: New token
+            Frontend->>Frontend: Update localStorage
+        else Token Too Old
+            UserSvc-->>Gateway: 401 Unauthorized
+            Gateway-->>Frontend: Re-login required
+            Frontend-->>User: Redirect to login
+        end
+    end
+
+    %% Logout Flow
+    rect rgb(255, 245, 240)
+        Note over User,Redis: 4. Logout Phase
+        User->>Frontend: Click logout button
+        Frontend->>Gateway: POST /api/auth/logout/<br/>Header: Authorization: Bearer {token}
+        Gateway->>UserSvc: POST /auth/logout/
+
+        UserSvc->>Redis: DEL session:{token}
+        Redis-->>UserSvc: Session deleted
+
+        UserSvc->>DB: UPDATE users<br/>SET last_login = now()<br/>WHERE id = {user_id}
+        Note right of DB: Track logout time
+
+        UserSvc-->>Gateway: 200 OK<br/>{"message": "Logged out"}
+        Gateway-->>Frontend: Success
+        Frontend->>Frontend: Clear localStorage
+        Frontend-->>User: Redirect to login page
+    end
+
+    Note over User,Redis: ✅ Authentication Fixed - Admin password reset to: admin123
+
+    %% Legend
+    rect rgb(250, 250, 250)
+        Note over User,Redis: Current Credentials:<br/>Username: admin<br/>Password: admin123<br/>Email: admin@example.com<br/>Role: Superuser<br/><br/>Password Hash in DB:<br/>$2b$12$PoAwZYURX/BoI0x6DKeKGO56CVEWmE1/JIUfcnTT/bdHXNJ757.oC<br/><br/>JWT Expiration: 24 hours
+    end

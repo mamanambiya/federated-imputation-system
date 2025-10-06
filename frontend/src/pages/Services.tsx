@@ -76,6 +76,8 @@ import {
   Business,
   Add,
   Edit as EditIcon,
+  Visibility,
+  VisibilityOff,
 } from '@mui/icons-material';
 import { useApi, ImputationService, ReferencePanel } from '../contexts/ApiContext';
 import ServiceManagement from '../components/ServiceManagement';
@@ -136,15 +138,20 @@ const setHealthCheckCache = (healthStatus: Record<number, 'healthy' | 'unhealthy
 
 const Services: React.FC = () => {
   const navigate = useNavigate();
-  const { getServices, getServiceReferencePanels, syncReferencePanels } = useApi();
+  const { discoverServices, getServiceReferencePanels, syncReferencePanels, createReferencePanel } = useApi();
   const [services, setServices] = useState<ImputationService[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedService, setSelectedService] = useState<ImputationService | null>(null);
   const [referencePanels, setReferencePanels] = useState<ReferencePanel[]>([]);
+  const [servicePanels, setServicePanels] = useState<Record<number, ReferencePanel[]>>({});
   const [dialogOpen, setDialogOpen] = useState(false);
   const [syncing, setSyncing] = useState<number | null>(null);
   const [serviceHealth, setServiceHealth] = useState<Record<number, 'healthy' | 'unhealthy' | 'checking' | 'unknown'>>({});
+
+  // Geolocation state for proximity-based ranking
+  const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null);
+  const [locationPermission, setLocationPermission] = useState<'prompt' | 'granted' | 'denied'>('prompt');
   
   // Advanced filtering and search state
   const [searchTerm, setSearchTerm] = useState('');
@@ -183,9 +190,47 @@ const Services: React.FC = () => {
   const [managementDialogOpen, setManagementDialogOpen] = useState(false);
   const [editingService, setEditingService] = useState<ImputationService | null>(null);
 
+  // Toggle for showing offline/inactive services
+  const [showAllServices, setShowAllServices] = useState(false);
+
+  // Add Panel Dialog state
+  const [addPanelDialogOpen, setAddPanelDialogOpen] = useState(false);
+  const [selectedServiceForPanel, setSelectedServiceForPanel] = useState<ImputationService | null>(null);
+  const [newPanelForm, setNewPanelForm] = useState({
+    name: '',
+    display_name: '',
+    description: '',
+    population: '',
+    build: '',
+    samples_count: '',
+    variants_count: '',
+  });
+
+  // Get user's geolocation for proximity-based ranking
+  useEffect(() => {
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            lat: position.coords.latitude,
+            lon: position.coords.longitude
+          });
+          setLocationPermission('granted');
+          console.log('User location obtained:', position.coords.latitude, position.coords.longitude);
+        },
+        (error) => {
+          console.log('Geolocation denied or unavailable:', error.message);
+          setLocationPermission('denied');
+          // Proceed without location - services will still be sorted by health
+        },
+        { timeout: 5000, enableHighAccuracy: false }
+      );
+    }
+  }, []);
+
   useEffect(() => {
     loadServices();
-  }, []);
+  }, [userLocation, showAllServices]); // Reload when location or toggle changes
 
   // Auto-refresh effect
   useEffect(() => {
@@ -575,10 +620,39 @@ const Services: React.FC = () => {
     try {
       setLoading(true);
       setOperationInProgress('Loading imputation services...');
-      const data = await getServices();
+
+      // Use discovery endpoint with intelligent ranking (online first, proximity-based if location available)
+      const data = await discoverServices({
+        latitude: userLocation?.lat,
+        longitude: userLocation?.lon,
+        only_active: !showAllServices,  // Show all if toggle is on, otherwise only active
+        only_healthy: false,  // Include unhealthy services (they'll rank lower)
+        limit: 50  // Get top 50 services
+      });
+
       setServices(data);
       setError(null);
-      showFeedback(`Successfully loaded ${data.length} imputation services`, 'success');
+
+      // Fetch reference panels for each service
+      const panelsData: Record<number, ReferencePanel[]> = {};
+      await Promise.all(
+        data.map(async (service) => {
+          try {
+            const panels = await getServiceReferencePanels(service.id);
+            panelsData[service.id] = panels;
+          } catch (err) {
+            console.error(`Failed to fetch panels for service ${service.id}:`, err);
+            panelsData[service.id] = [];
+          }
+        })
+      );
+      setServicePanels(panelsData);
+
+      const locationMsg = userLocation
+        ? ' (sorted by proximity and health)'
+        : ' (sorted by health status)';
+      const filterMsg = showAllServices ? ' (including offline/inactive)' : '';
+      showFeedback(`Successfully loaded ${data.length} imputation services${locationMsg}${filterMsg}`, 'success');
 
       // Check if we have cached health status
       const cachedHealth = getHealthCheckCache();
@@ -718,6 +792,66 @@ const Services: React.FC = () => {
       console.error('Error syncing panels:', err);
     } finally {
       setSyncing(null);
+    }
+  };
+
+  const handleOpenAddPanel = (service: ImputationService, event: React.MouseEvent) => {
+    event.stopPropagation();
+    setSelectedServiceForPanel(service);
+    setNewPanelForm({
+      name: '',
+      display_name: '',
+      description: '',
+      population: '',
+      build: '',
+      samples_count: '',
+      variants_count: '',
+    });
+    setAddPanelDialogOpen(true);
+  };
+
+  const handleCloseAddPanel = () => {
+    setAddPanelDialogOpen(false);
+    setSelectedServiceForPanel(null);
+  };
+
+  const handleCreatePanel = async () => {
+    if (!selectedServiceForPanel || !newPanelForm.name) {
+      showFeedback('Panel name is required', 'error');
+      return;
+    }
+
+    try {
+      setOperationInProgress('Creating reference panel...');
+
+      const panelData: any = {
+        service_id: selectedServiceForPanel.id,
+        name: newPanelForm.name,
+        display_name: newPanelForm.display_name || undefined,
+        description: newPanelForm.description || undefined,
+        population: newPanelForm.population || undefined,
+        build: newPanelForm.build || undefined,
+        samples_count: newPanelForm.samples_count ? parseInt(newPanelForm.samples_count) : undefined,
+        variants_count: newPanelForm.variants_count ? parseInt(newPanelForm.variants_count) : undefined,
+      };
+
+      const newPanel = await createReferencePanel(panelData);
+
+      // Update local panels state
+      setServicePanels(prev => ({
+        ...prev,
+        [selectedServiceForPanel.id]: [...(prev[selectedServiceForPanel.id] || []), newPanel]
+      }));
+
+      setOperationInProgress(null);
+      showFeedback(`Successfully created reference panel: ${newPanel.display_name || newPanel.name}`, 'success');
+      handleCloseAddPanel();
+
+    } catch (err: any) {
+      setOperationInProgress(null);
+      const errorMessage = err.response?.data?.detail || 'Failed to create reference panel';
+      showFeedback(errorMessage, 'error');
+      console.error('Error creating panel:', err);
     }
   };
 
@@ -872,8 +1006,27 @@ const Services: React.FC = () => {
           <Typography variant="body1" color="text.secondary">
             Select an imputation service to view available reference panels and submit jobs.
           </Typography>
+          {userLocation && (
+            <Box display="flex" alignItems="center" mt={1}>
+              <LocationOn sx={{ fontSize: 16, mr: 0.5, color: 'success.main' }} />
+              <Typography variant="caption" color="success.main">
+                Services sorted by proximity to your location
+              </Typography>
+            </Box>
+          )}
         </Box>
         <Box display="flex" gap={1}>
+          {/* TODO: Make this admin-only when user roles are implemented */}
+          <Tooltip title={showAllServices ? "Hide offline/inactive services" : "Show all services including offline/inactive"}>
+            <Button
+              variant={showAllServices ? "contained" : "outlined"}
+              startIcon={showAllServices ? <Visibility /> : <VisibilityOff />}
+              onClick={() => setShowAllServices(!showAllServices)}
+              color={showAllServices ? "warning" : "inherit"}
+            >
+              {showAllServices ? 'Show Online Only' : 'Show All'}
+            </Button>
+          </Tooltip>
           <Button
             variant="contained"
             startIcon={<Add />}
@@ -1452,11 +1605,14 @@ const Services: React.FC = () => {
                   {service.description || getServiceDescription(service.service_type)}
                 </Typography>
 
-                {service.location && (
+                {/* Display new structured location fields or fall back to legacy location */}
+                {(service.location_city || service.location_country || service.location) && (
                   <Box display="flex" alignItems="center" mb={1}>
                     <LocationOn sx={{ fontSize: 16, mr: 1, color: 'text.secondary' }} />
                     <Typography variant="body2" color="text.secondary">
-                      {service.location}
+                      {service.location_datacenter && `${service.location_datacenter}, `}
+                      {service.location_city && `${service.location_city}, `}
+                      {service.location_country || service.location}
                     </Typography>
                   </Box>
                 )}
@@ -1479,17 +1635,91 @@ const Services: React.FC = () => {
                   </Box>
                 )}
 
+                {/* Reference Panels Display */}
+                {servicePanels[service.id] && servicePanels[service.id].length > 0 ? (
+                  <Box mb={2}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                      Reference Panels ({servicePanels[service.id].length})
+                    </Typography>
+                    <Box display="flex" flexWrap="wrap" gap={0.5}>
+                      {servicePanels[service.id].slice(0, 3).map((panel) => (
+                        <Tooltip
+                          key={panel.id}
+                          title={
+                            <Box>
+                              <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block' }}>
+                                {panel.display_name || panel.name}
+                              </Typography>
+                              <Typography variant="caption" sx={{ display: 'block' }}>
+                                Population: {panel.population}
+                              </Typography>
+                              <Typography variant="caption" sx={{ display: 'block' }}>
+                                Build: {panel.build}
+                              </Typography>
+                              <Typography variant="caption" sx={{ display: 'block' }}>
+                                Samples: {panel.samples_count?.toLocaleString() || 'Unknown'}
+                              </Typography>
+                              {panel.description && (
+                                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, fontStyle: 'italic' }}>
+                                  {panel.description}
+                                </Typography>
+                              )}
+                            </Box>
+                          }
+                          arrow
+                          placement="top"
+                        >
+                          <Chip
+                            label={`${panel.population} (${panel.build})`}
+                            size="small"
+                            variant="outlined"
+                            color={(panel.is_available !== false && panel.is_active !== false) ? "primary" : "default"}
+                            icon={<Storage />}
+                            sx={{ fontSize: '0.7rem', cursor: 'help' }}
+                          />
+                        </Tooltip>
+                      ))}
+                      {servicePanels[service.id].length > 3 && (
+                        <Tooltip
+                          title={
+                            <Box>
+                              {servicePanels[service.id].slice(3).map((panel) => (
+                                <Typography key={panel.id} variant="caption" sx={{ display: 'block' }}>
+                                  • {panel.population} ({panel.build})
+                                </Typography>
+                              ))}
+                            </Box>
+                          }
+                          arrow
+                          placement="top"
+                        >
+                          <Chip
+                            label={`+${servicePanels[service.id].length - 3} more`}
+                            size="small"
+                            variant="outlined"
+                            sx={{ fontSize: '0.7rem', cursor: 'help' }}
+                          />
+                        </Tooltip>
+                      )}
+                    </Box>
+                  </Box>
+                ) : (
+                  <Box mb={2}>
+                    <Chip
+                      icon={<Storage />}
+                      label={servicePanels[service.id] ? "No panels" : "Loading panels..."}
+                      size="small"
+                      variant="outlined"
+                      color={servicePanels[service.id] ? "default" : "info"}
+                    />
+                  </Box>
+                )}
+
                 <Box display="flex" flexWrap="wrap" gap={1} mb={2}>
-                  <Chip 
-                    icon={<Storage />} 
-                    label={`${service.reference_panels_count} panels`} 
-                    size="small" 
-                    variant="outlined"
-                  />
-                  <Chip 
-                    icon={<CloudUpload />} 
-                    label={`${service.max_file_size_mb}MB max`} 
-                    size="small" 
+                  <Chip
+                    icon={<CloudUpload />}
+                    label={`${service.max_file_size_mb}MB max`}
+                    size="small"
                     variant="outlined"
                   />
                 </Box>
@@ -1514,6 +1744,14 @@ const Services: React.FC = () => {
                   color="primary"
                 >
                   Edit
+                </Button>
+                <Button
+                  size="small"
+                  onClick={(e) => handleOpenAddPanel(service, e)}
+                  startIcon={<Add />}
+                  color="success"
+                >
+                  Add Panel
                 </Button>
                 <Button
                   size="small"
@@ -1606,6 +1844,91 @@ const Services: React.FC = () => {
             </DialogActions>
           </>
         )}
+      </Dialog>
+
+      {/* Add Reference Panel Dialog */}
+      <Dialog
+        open={addPanelDialogOpen}
+        onClose={handleCloseAddPanel}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          Add Reference Panel{selectedServiceForPanel && ` - ${selectedServiceForPanel.name}`}
+        </DialogTitle>
+        <DialogContent>
+          <Box mt={2} display="flex" flexDirection="column" gap={2}>
+            <TextField
+              label="Panel Name"
+              value={newPanelForm.name}
+              onChange={(e) => setNewPanelForm({ ...newPanelForm, name: e.target.value })}
+              required
+              fullWidth
+              helperText="Short identifier (e.g., '1kg_p3', 'topmed')"
+            />
+            <TextField
+              label="Display Name"
+              value={newPanelForm.display_name}
+              onChange={(e) => setNewPanelForm({ ...newPanelForm, display_name: e.target.value })}
+              fullWidth
+              helperText="Full name to display (e.g., '1000 Genomes Phase 3')"
+            />
+            <TextField
+              label="Description"
+              value={newPanelForm.description}
+              onChange={(e) => setNewPanelForm({ ...newPanelForm, description: e.target.value })}
+              fullWidth
+              multiline
+              rows={2}
+            />
+            <Grid container spacing={2}>
+              <Grid item xs={6}>
+                <TextField
+                  label="Population"
+                  value={newPanelForm.population}
+                  onChange={(e) => setNewPanelForm({ ...newPanelForm, population: e.target.value })}
+                  fullWidth
+                  helperText="e.g., 'African', 'Multi-ethnic'"
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  label="Build"
+                  value={newPanelForm.build}
+                  onChange={(e) => setNewPanelForm({ ...newPanelForm, build: e.target.value })}
+                  fullWidth
+                  helperText="e.g., 'hg19', 'hg38'"
+                />
+              </Grid>
+            </Grid>
+            <Grid container spacing={2}>
+              <Grid item xs={6}>
+                <TextField
+                  label="Samples Count"
+                  value={newPanelForm.samples_count}
+                  onChange={(e) => setNewPanelForm({ ...newPanelForm, samples_count: e.target.value })}
+                  fullWidth
+                  type="number"
+                />
+              </Grid>
+              <Grid item xs={6}>
+                <TextField
+                  label="Variants Count"
+                  value={newPanelForm.variants_count}
+                  onChange={(e) => setNewPanelForm({ ...newPanelForm, variants_count: e.target.value })}
+                  fullWidth
+                  type="number"
+                />
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseAddPanel}>Cancel</Button>
+          <Button onClick={handleCreatePanel} variant="contained" color="primary">
+            Create Panel
+          </Button>
+        </DialogActions>
       </Dialog>
 
       {/* Operation Progress Backdrop */}

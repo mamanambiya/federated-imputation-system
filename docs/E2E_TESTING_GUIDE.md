@@ -51,6 +51,73 @@ Our E2E test suite covers:
 
 ## Test Architecture
 
+### E2E Testing Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   E2E TEST EXECUTION FLOW                   │
+└─────────────────────────────────────────────────────────────┘
+
+STEP 1: Test Initialization
+   npx playwright test
+        ↓
+   ┌─────────────────────────────┐
+   │  Playwright Config Loaded   │
+   │  • Base URL                 │
+   │  • Browser options          │
+   │  • Timeout settings         │
+   └──────────────┬──────────────┘
+                  ↓
+   Launch browsers in parallel
+   ┌────────┐  ┌────────┐  ┌─────────┐
+   │Chromium│  │Firefox │  │ WebKit  │
+   └────────┘  └────────┘  └─────────┘
+
+STEP 2: Test Execution
+   For each test file:
+        ↓
+   ┌─────────────────────────────┐
+   │   beforeEach() Setup        │
+   │   • Navigate to base URL    │
+   │   • Login if needed         │
+   │   • Setup test data         │
+   └──────────────┬──────────────┘
+                  ↓
+   ┌─────────────────────────────┐
+   │   Execute Test Cases        │
+   │   1. User interactions      │
+   │      • Click, type, select  │
+   │   2. Assertions             │
+   │      • Verify UI state      │
+   │      • Check data           │
+   │   3. Screenshot/Video       │
+   │      • Capture on failure   │
+   └──────────────┬──────────────┘
+                  ↓
+   ┌─────────────────────────────┐
+   │   afterEach() Cleanup       │
+   │   • Logout                  │
+   │   • Clear state             │
+   └─────────────────────────────┘
+
+STEP 3: Test Reporting
+   ┌─────────────────────────────┐
+   │   Generate Reports          │
+   │   • HTML report             │
+   │   • JSON results            │
+   │   • Screenshots/Videos      │
+   └──────────────┬──────────────┘
+                  ↓
+   Open report: npx playwright show-report
+        ↓
+   ┌─────────────────────────────┐
+   │   Interactive HTML Report   │
+   │   • Test results            │
+   │   • Execution traces        │
+   │   • Failure screenshots     │
+   └─────────────────────────────┘
+```
+
 ### Project Structure
 
 ```

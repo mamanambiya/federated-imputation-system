@@ -60,7 +60,7 @@ class User(Base):
     
     # Relationships
     profile = relationship("UserProfile", back_populates="user", uselist=False)
-    roles = relationship("UserRole", back_populates="user")
+    roles = relationship("UserRole", back_populates="user", foreign_keys="[UserRole.user_id]")
     audit_logs = relationship("AuditLog", back_populates="user")
 
 class UserProfile(Base):
@@ -97,9 +97,50 @@ class UserRole(Base):
     user = relationship("User", back_populates="roles", foreign_keys=[user_id])
     granted_by = relationship("User", foreign_keys=[granted_by_id])
 
+class UserServiceCredential(Base):
+    """
+    Stores per-user credentials for external imputation services.
+    Each user must configure their own API tokens for services they want to use.
+    """
+    __tablename__ = "user_service_credentials"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    service_id = Column(Integer, nullable=False, index=True)  # References service in service-registry
+
+    # Credential information
+    credential_type = Column(String(50), default='api_token')  # api_token, oauth2, basic_auth
+    api_token = Column(Text, nullable=True)  # TODO: Should be encrypted in production
+    oauth_token = Column(Text, nullable=True)
+    oauth_refresh_token = Column(Text, nullable=True)
+    username = Column(String(255), nullable=True)  # For basic auth
+    password = Column(Text, nullable=True)  # For basic auth (encrypted)
+
+    # Metadata
+    label = Column(String(100), nullable=True)  # User-friendly label
+    is_active = Column(Boolean, default=True)
+    is_verified = Column(Boolean, default=False)  # Has the credential been tested?
+    last_verified_at = Column(DateTime, nullable=True)
+    last_used_at = Column(DateTime, nullable=True)
+    verification_error = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+
+    # Unique constraint: one active credential per user per service
+    from sqlalchemy import UniqueConstraint
+    __table_args__ = (
+        UniqueConstraint('user_id', 'service_id', name='uq_user_service_credential'),
+    )
+
+    # Relationships
+    user = relationship("User", backref="service_credentials")
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     action = Column(String(50), nullable=False)
@@ -109,7 +150,7 @@ class AuditLog(Base):
     ip_address = Column(String(45), nullable=True)
     user_agent = Column(String(500), nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
-    
+
     # Relationships
     user = relationship("User", back_populates="audit_logs")
 
@@ -180,6 +221,46 @@ class RoleResponse(BaseModel):
     granted_at: datetime
     expires_at: Optional[datetime]
     is_active: bool
+
+class ServiceCredentialCreate(BaseModel):
+    service_id: int
+    credential_type: str = 'api_token'
+    api_token: Optional[str] = None
+    oauth_token: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    label: Optional[str] = None
+
+class ServiceCredentialUpdate(BaseModel):
+    api_token: Optional[str] = None
+    oauth_token: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    label: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class ServiceCredentialResponse(BaseModel):
+    id: int
+    service_id: int
+    credential_type: str
+    label: Optional[str]
+    is_active: bool
+    is_verified: bool
+    last_verified_at: Optional[datetime]
+    last_used_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+    # Note: Never return actual credentials in response
+    has_api_token: bool = False
+    has_oauth_token: bool = False
+    has_basic_auth: bool = False
+
+class ServiceCredentialVerifyResponse(BaseModel):
+    credential_id: int
+    service_id: int
+    is_valid: bool
+    message: str
+    verified_at: datetime
 
 # Utility functions
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -406,13 +487,13 @@ async def get_user_roles(
     db: Session = Depends(get_db)
 ):
     """Get user roles."""
-    
+
     # Check permissions (user can view their own roles, admins can view any)
     if current_user.id != user_id and not current_user.is_staff:
         raise HTTPException(status_code=403, detail="Permission denied")
-    
+
     roles = db.query(UserRole).filter(UserRole.user_id == user_id).all()
-    
+
     return [
         RoleResponse(
             id=role.id,
@@ -424,6 +505,229 @@ async def get_user_roles(
         )
         for role in roles
     ]
+
+# ============================================================================
+# SERVICE CREDENTIAL MANAGEMENT ENDPOINTS
+# ============================================================================
+
+@app.post("/users/me/service-credentials", response_model=ServiceCredentialResponse, status_code=201)
+async def create_service_credential(
+    credential_data: ServiceCredentialCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create or update service credentials for the current user.
+    Each user must configure their own credentials for external services.
+    """
+
+    # Check if credential already exists
+    existing = db.query(UserServiceCredential).filter(
+        UserServiceCredential.user_id == current_user.id,
+        UserServiceCredential.service_id == credential_data.service_id
+    ).first()
+
+    if existing:
+        # Update existing credential
+        if credential_data.api_token:
+            existing.api_token = credential_data.api_token
+        if credential_data.oauth_token:
+            existing.oauth_token = credential_data.oauth_token
+        if credential_data.username:
+            existing.username = credential_data.username
+        if credential_data.password:
+            existing.password = get_password_hash(credential_data.password)
+        if credential_data.label:
+            existing.label = credential_data.label
+
+        existing.credential_type = credential_data.credential_type
+        existing.is_verified = False  # Reset verification on update
+        existing.updated_at = datetime.utcnow()
+
+        db.commit()
+        db.refresh(existing)
+        credential = existing
+    else:
+        # Create new credential
+        credential = UserServiceCredential(
+            user_id=current_user.id,
+            service_id=credential_data.service_id,
+            credential_type=credential_data.credential_type,
+            api_token=credential_data.api_token,
+            oauth_token=credential_data.oauth_token,
+            username=credential_data.username,
+            password=get_password_hash(credential_data.password) if credential_data.password else None,
+            label=credential_data.label
+        )
+        db.add(credential)
+        db.commit()
+        db.refresh(credential)
+
+    # Log the action
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action="create_service_credential" if not existing else "update_service_credential",
+        resource_type="service_credential",
+        resource_id=str(credential.id),
+        details=f"Service ID: {credential_data.service_id}"
+    )
+    db.add(audit_log)
+    db.commit()
+
+    return ServiceCredentialResponse(
+        id=credential.id,
+        service_id=credential.service_id,
+        credential_type=credential.credential_type,
+        label=credential.label,
+        is_active=credential.is_active,
+        is_verified=credential.is_verified,
+        last_verified_at=credential.last_verified_at,
+        last_used_at=credential.last_used_at,
+        created_at=credential.created_at,
+        updated_at=credential.updated_at,
+        has_api_token=bool(credential.api_token),
+        has_oauth_token=bool(credential.oauth_token),
+        has_basic_auth=bool(credential.username and credential.password)
+    )
+
+@app.get("/users/me/service-credentials", response_model=List[ServiceCredentialResponse])
+async def list_service_credentials(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """List all service credentials for the current user."""
+
+    credentials = db.query(UserServiceCredential).filter(
+        UserServiceCredential.user_id == current_user.id
+    ).order_by(UserServiceCredential.created_at.desc()).all()
+
+    return [
+        ServiceCredentialResponse(
+            id=cred.id,
+            service_id=cred.service_id,
+            credential_type=cred.credential_type,
+            label=cred.label,
+            is_active=cred.is_active,
+            is_verified=cred.is_verified,
+            last_verified_at=cred.last_verified_at,
+            last_used_at=cred.last_used_at,
+            created_at=cred.created_at,
+            updated_at=cred.updated_at,
+            has_api_token=bool(cred.api_token),
+            has_oauth_token=bool(cred.oauth_token),
+            has_basic_auth=bool(cred.username and cred.password)
+        )
+        for cred in credentials
+    ]
+
+@app.get("/users/me/service-credentials/{service_id}", response_model=ServiceCredentialResponse)
+async def get_service_credential(
+    service_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get user's credential for a specific service."""
+
+    credential = db.query(UserServiceCredential).filter(
+        UserServiceCredential.user_id == current_user.id,
+        UserServiceCredential.service_id == service_id
+    ).first()
+
+    if not credential:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No credentials configured for service {service_id}"
+        )
+
+    return ServiceCredentialResponse(
+        id=credential.id,
+        service_id=credential.service_id,
+        credential_type=credential.credential_type,
+        label=credential.label,
+        is_active=credential.is_active,
+        is_verified=credential.is_verified,
+        last_verified_at=credential.last_verified_at,
+        last_used_at=credential.last_used_at,
+        created_at=credential.created_at,
+        updated_at=credential.updated_at,
+        has_api_token=bool(credential.api_token),
+        has_oauth_token=bool(credential.oauth_token),
+        has_basic_auth=bool(credential.username and credential.password)
+    )
+
+@app.delete("/users/me/service-credentials/{service_id}", status_code=204)
+async def delete_service_credential(
+    service_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete user's credential for a specific service."""
+
+    credential = db.query(UserServiceCredential).filter(
+        UserServiceCredential.user_id == current_user.id,
+        UserServiceCredential.service_id == service_id
+    ).first()
+
+    if not credential:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No credentials configured for service {service_id}"
+        )
+
+    # Log the deletion
+    audit_log = AuditLog(
+        user_id=current_user.id,
+        action="delete_service_credential",
+        resource_type="service_credential",
+        resource_id=str(credential.id),
+        details=f"Service ID: {service_id}"
+    )
+    db.add(audit_log)
+
+    db.delete(credential)
+    db.commit()
+
+# Internal endpoint for job processor to fetch user credentials
+@app.get("/internal/users/{user_id}/service-credentials/{service_id}")
+async def get_user_service_credential_internal(
+    user_id: int,
+    service_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Internal endpoint for microservices to fetch user's service credentials.
+    Used by job-processor when submitting jobs to external services.
+
+    NOTE: This endpoint should be protected by internal network/API gateway.
+    """
+
+    credential = db.query(UserServiceCredential).filter(
+        UserServiceCredential.user_id == user_id,
+        UserServiceCredential.service_id == service_id,
+        UserServiceCredential.is_active == True
+    ).first()
+
+    if not credential:
+        return {
+            "has_credential": False,
+            "message": f"User {user_id} has not configured credentials for service {service_id}"
+        }
+
+    # Update last used timestamp
+    credential.last_used_at = datetime.utcnow()
+    db.commit()
+
+    # Return actual credentials (only for internal use)
+    return {
+        "has_credential": True,
+        "credential_type": credential.credential_type,
+        "api_token": credential.api_token,
+        "oauth_token": credential.oauth_token,
+        "username": credential.username,
+        "password": credential.password,  # Already hashed
+        "is_verified": credential.is_verified,
+        "last_verified_at": credential.last_verified_at
+    }
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=True)

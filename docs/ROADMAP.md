@@ -1,10 +1,27 @@
 # Federated Genomic Imputation Platform - Development Roadmap
 
-*Last Updated: August 2025*
+*Last Updated: October 4, 2025*
+
+> **📋 This is a high-level overview. For detailed roadmap with tasks, timelines, and implementation plans, see [ROADMAP_UPDATED_2025.md](./ROADMAP_UPDATED_2025.md)**
 
 ## 🎯 Vision Statement
 
 To create the most comprehensive and user-friendly federated genomic imputation platform that seamlessly connects researchers worldwide to diverse imputation services while maintaining data sovereignty, security, and accessibility.
+
+---
+
+## 📊 Current Status (October 2025)
+
+**Production Status**: v1.0 - Hybrid Django + FastAPI Microservices
+- **Architecture**: 7 independent microservices + Django monolith + React frontend
+- **Microservices Health**: 6/7 healthy (job-processor requires attention)
+- **Phase 1 Progress**: ~40% complete
+- **Critical Focus**: Stabilization, observability, data sync
+
+**Live System Stats**:
+- Services: H3Africa (healthy), Michigan (timeout), ILIFU (healthy), ICE MALI (offline)
+- Performance: FastAPI 10x faster than Django for async operations
+- Efficiency: 75% less RAM than all-Django architecture (300MB vs 1.2GB)
 
 ## 🏆 Current Status (v1.0)
 
@@ -30,26 +47,37 @@ To create the most comprehensive and user-friendly federated genomic imputation 
 
 ## 🚀 Roadmap by Timeline
 
-## 📅 **Phase 1: Foundation Enhancement (Q3-Q4 2025)**
+---
 
-### 🔧 **Core Infrastructure**
-- [ ] **Performance Optimization**
-  - Database query optimization and indexing
-  - API response caching with Redis
-  - Background job queue optimization
-  - Frontend bundle optimization and lazy loading
+## 🚀 Roadmap Phases Overview
 
-- [ ] **Security Hardening**
-  - OAuth 2.0 / OIDC integration
-  - API rate limiting and throttling
-  - Audit logging and security monitoring
-  - Data encryption at rest and in transit
+**For detailed timelines, tasks, and implementation plans, see [ROADMAP_UPDATED_2025.md](./ROADMAP_UPDATED_2025.md)**
 
-- [ ] **Monitoring & Observability**
-  - Application performance monitoring (APM)
-  - Health check endpoints and alerting
-  - Metrics collection (Prometheus/Grafana)
-  - Centralized logging with ELK stack
+---
+
+## 📅 **Phase 1: Stabilization & Core Fixes (Q4 2025 - 3 months)**
+**Status**: 40% Complete → Target 100%
+
+### ⚠️ **Critical Fixes (Sprint 1 - Month 1)**
+- [ ] **Fix job-processor health check** - Unblock job execution (P0 BLOCKER)
+- [ ] **Implement Django ↔ Microservices sync** - Event-driven sync via signals (P0 BLOCKER)
+- [ ] **Configure SMTP** - Enable email notifications (P1)
+- [ ] **Start ELK stack** - Centralized logging for debugging (P1)
+- [ ] **Fix external service health checks** - Michigan timeout (30s TLS), ILIFU connection (P1)
+
+### 📊 **Observability (Sprint 2 - Month 2)**
+- [ ] **Deploy Prometheus + Grafana** - Real-time metrics visualization
+- [ ] **Create 5 core dashboards** - System, jobs, external services, API, infrastructure
+- [ ] **Implement alerting** - Email/Slack for service failures
+- [ ] **Add APM** - Request tracing, performance bottlenecks
+- [ ] **Audit logging system** - User actions, security events
+
+### 🏗️ **Production Readiness (Sprint 3 - Month 3)**
+- [ ] **Cloud storage integration** - AWS S3/Azure Blob (file persistence)
+- [ ] **Automated database backups** - Daily backups, 30-day retention
+- [ ] **SSL/TLS certificates** - Production HTTPS with Let's Encrypt
+- [ ] **Rate limiting tuning** - Production limits (100-200/hr vs 1000/hr dev)
+- [ ] **Documentation update** - Deployment guides, operational runbooks
 
 ### 📱 **User Experience**
 - [ ] **Enhanced Job Management**
@@ -73,20 +101,37 @@ To create the most comprehensive and user-friendly federated genomic imputation 
 
 ---
 
-## 📅 **Phase 2: Advanced Features (Q1-Q2 2026)**
+**Phase 1 Success Metrics**:
+- ✅ All 7 microservices healthy (100% uptime)
+- ✅ API response time <500ms (p95)
+- ✅ Jobs can be created and executed
+- ✅ ELK + Grafana operational
+- ✅ System uptime >99% over 30 days
 
-### 🤖 **Intelligent Automation**
-- [ ] **Smart Service Selection**
-  - AI-powered service recommendations
-  - Population matching for optimal panels
-  - Quality score-based routing
-  - Cost optimization algorithms
+---
 
-- [ ] **Workflow Orchestration**
-  - Multi-step imputation pipelines
-  - Quality control automation
-  - Post-imputation analysis integration
-  - Workflow templating system
+## 📅 **Phase 2: Feature Completion (Q1 2026 - 3 months)**
+**Status**: Not Started (0%)
+
+### 🔗 **Integration & Automation (Sprint 4 - Month 4)**
+- [ ] **OAuth 2.0 / OIDC** - Replace JWT-only auth with enterprise SSO
+- [ ] **Reference panel API sync** - Auto-discover panels from services
+- [ ] **Workflow orchestration** - Multi-step pipelines
+- [ ] **Job analytics dashboard** - Success rates, performance benchmarks
+- [ ] **Cost tracking** - Usage monitoring per user/service
+
+### 🚀 **Advanced Features (Sprint 5 - Month 5)**
+- [ ] **AI-powered service selection** - Population matching, quality scoring
+- [ ] **PLINK/VCF validation** - Pre-submission checks
+- [ ] **Format conversion** - Automated VCF ↔ PLINK ↔ BGEN
+- [ ] **Bulk job operations** - Upload, cancel, retry in batch
+- [ ] **Job templates & favorites** - User productivity
+
+### ✅ **Quality & Performance (Sprint 6 - Month 6)**
+- [ ] **Comprehensive test coverage** - >90% backend, >80% frontend
+- [ ] **Performance optimization** - Database indexing, query optimization
+- [ ] **Security audit** - Penetration testing, vulnerability scanning
+- [ ] **Load testing** - 100 concurrent users, 1000 jobs/day
 
 ### 📊 **Analytics & Reporting**
 - [ ] **Job Analytics Dashboard**
@@ -116,20 +161,37 @@ To create the most comprehensive and user-friendly federated genomic imputation 
 
 ---
 
-## 📅 **Phase 3: Enterprise & Scale (Q3-Q4 2026)**
+**Phase 2 Success Metrics**:
+- ✅ OAuth authentication with 3+ providers
+- ✅ AI recommendations achieving 70%+ accuracy
+- ✅ Test coverage >90% (backend) and >80% (frontend)
+- ✅ Successfully handle 100 concurrent users
 
-### 🏢 **Enterprise Features**
-- [ ] **Multi-tenancy Support**
-  - Organization-level isolation
-  - Resource quotas and billing
-  - Custom branding and white-labeling
-  - Enterprise SSO integration
+---
 
-- [ ] **Advanced Security**
-  - Field-level encryption
-  - Zero-trust architecture
-  - Compliance frameworks (GDPR, HIPAA)
-  - Data residency controls
+## 📅 **Phase 3: Scale & Enterprise (Q2-Q3 2026 - 6 months)**
+**Status**: Not Started (0%)
+
+### ☸️ **Kubernetes Migration (Sprints 7-8)**
+- [ ] **Kubernetes deployment** - Helm charts, auto-scaling
+- [ ] **Multi-region support** - US, Europe, Africa
+- [ ] **CDN integration** - CloudFlare/AWS CloudFront
+- [ ] **Load balancing** - nginx/HAProxy cluster
+- [ ] **Disaster recovery** - Multi-region backups, failover
+
+### 🏢 **Enterprise Features (Sprints 9-10)**
+- [ ] **Multi-tenancy** - Organization isolation, resource quotas
+- [ ] **SSO integration** - SAML, LDAP, OpenID Connect
+- [ ] **Custom branding** - White-labeling
+- [ ] **Advanced security** - Field-level encryption, zero-trust
+- [ ] **Compliance** - GDPR, HIPAA frameworks
+
+### 📊 **Advanced Analytics (Sprints 11-12)**
+- [ ] **Big data processing** - Spark/Dask integration
+- [ ] **GPU acceleration** - ML-based imputation
+- [ ] **Quality metrics** - Imputation quality scoring
+- [ ] **Population genetics analysis** - Advanced tools
+- [ ] **Export/Import** - Data portability
 
 ### ⚡ **Scalability & Performance**
 - [ ] **Horizontal Scaling**
@@ -153,7 +215,16 @@ To create the most comprehensive and user-friendly federated genomic imputation 
 
 ---
 
-## 📅 **Phase 4: Next-Generation (2027+)**
+**Phase 3 Success Metrics**:
+- ✅ Kubernetes cluster serving 1000+ users
+- ✅ Multi-region deployment (3 regions)
+- ✅ Multi-tenancy with 10+ organizations
+- ✅ Process 10K+ jobs/month
+
+---
+
+## 📅 **Phase 4: Next-Generation (2027+ - Ongoing)**
+**Status**: Research & Planning
 
 ### 🧬 **Advanced Genomics**
 - [ ] **Emerging Technologies**

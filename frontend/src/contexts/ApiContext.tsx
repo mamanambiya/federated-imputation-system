@@ -12,8 +12,22 @@ export interface ImputationService {
   api_config?: any;
   description: string;
   version?: string;
-  location?: string;
+  location?: string; // Legacy field (backward compatibility)
   continent?: string;
+  // New location fields from microservices
+  location_country?: string;
+  location_city?: string;
+  location_datacenter?: string;
+  location_coordinates?: { lat: number; lon: number };
+  // Resource fields
+  cpu_available?: number | null;
+  cpu_total?: number | null;
+  memory_available_gb?: number | null;
+  memory_total_gb?: number | null;
+  storage_available_gb?: number | null;
+  storage_total_gb?: number | null;
+  queue_capacity?: number | null;
+  queue_current?: number;
   is_active: boolean;
   is_available?: boolean;
   requires_auth?: boolean; // Microservices field
@@ -33,17 +47,23 @@ export interface ImputationService {
 
 export interface ReferencePanel {
   id: number;
+  service_id: number;
   name: string;
-  panel_id: string;
+  slug?: string;
+  display_name?: string;
+  panel_id?: string; // Legacy field for backward compatibility
   description: string;
   population: string;
   build: string;
   samples_count: number;
   variants_count: number;
-  is_active: boolean;
-  service: number;
-  service_name: string;
-  service_type: string;
+  is_available?: boolean;
+  is_public?: boolean;
+  requires_permission?: boolean;
+  is_active?: boolean; // Legacy field
+  service?: number; // Legacy field
+  service_name?: string;
+  service_type?: string;
   created_at: string;
   updated_at: string;
 }
@@ -126,6 +146,19 @@ interface ApiContextType {
 
   // Services
   getServices: () => Promise<ImputationService[]>;
+  discoverServices: (params?: {
+    latitude?: number;
+    longitude?: number;
+    max_distance_km?: number;
+    min_cpu?: number;
+    min_memory_gb?: number;
+    min_storage_gb?: number;
+    service_type?: string;
+    api_type?: string;
+    only_active?: boolean;
+    only_healthy?: boolean;
+    limit?: number;
+  }) => Promise<ImputationService[]>;
   getService: (id: number) => Promise<ImputationService>;
   createService: (data: any) => Promise<ImputationService>;
   updateService: (id: number, data: any) => Promise<ImputationService>;
@@ -135,6 +168,7 @@ interface ApiContextType {
   // Reference Panels
   getReferencePanels: (serviceId?: number, population?: string, build?: string) => Promise<ReferencePanel[]>;
   getServiceReferencePanels: (serviceId: number) => Promise<ReferencePanel[]>;
+  createReferencePanel: (panel: Omit<ReferencePanel, 'id' | 'created_at' | 'updated_at' | 'slug'>) => Promise<ReferencePanel>;
 
   // Jobs
   getJobs: (status?: string, serviceId?: number, search?: string) => Promise<ImputationJob[]>;
@@ -193,8 +227,37 @@ const createApiInstance = (): AxiosInstance => {
   return instance;
 };
 
+// Create axios instance for service registry microservice
+const createServiceRegistryApi = (): AxiosInstance => {
+  // Use service registry direct port (8002) since it's not routed through gateway yet
+  const baseURL = process.env.REACT_APP_SERVICE_REGISTRY_URL || 'http://154.114.10.123:8002';
+
+  const instance = axios.create({
+    baseURL,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    timeout: 30000,
+  });
+
+  // Add token if available
+  instance.interceptors.request.use(
+    (config) => {
+      const token = localStorage.getItem('access_token');
+      if (token) {
+        config.headers['Authorization'] = `Bearer ${token}`;
+      }
+      return config;
+    },
+    (error) => Promise.reject(error)
+  );
+
+  return instance;
+};
+
 export const ApiProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const api = createApiInstance();
+  const serviceRegistryApi = createServiceRegistryApi();
 
   // Generic API call function
   const apiCall = async (endpoint: string, options?: RequestInit): Promise<any> => {
@@ -224,6 +287,59 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const response = await api.get('/services/');
     // Handle paginated response
     let services = response.data.results !== undefined ? response.data.results : response.data;
+
+    // Add backward compatibility mapping
+    services = services.map((service: ImputationService) => {
+      if (service.base_url && !service.api_url) {
+        service.api_url = service.base_url;
+      }
+      if (service.api_key_required === undefined && service.requires_auth !== undefined) {
+        service.api_key_required = service.requires_auth;
+      }
+      if (service.reference_panels_count === undefined) {
+        service.reference_panels_count = 0;
+      }
+      return service;
+    });
+
+    return services;
+  };
+
+  // Discover services with intelligent ranking (online first, proximity-based)
+  const discoverServices = async (params?: {
+    latitude?: number;
+    longitude?: number;
+    max_distance_km?: number;
+    min_cpu?: number;
+    min_memory_gb?: number;
+    min_storage_gb?: number;
+    service_type?: string;
+    api_type?: string;
+    only_active?: boolean;
+    only_healthy?: boolean;
+    limit?: number;
+  }): Promise<ImputationService[]> => {
+    const queryParams = new URLSearchParams();
+
+    // Add parameters if provided
+    if (params?.latitude !== undefined) queryParams.append('latitude', params.latitude.toString());
+    if (params?.longitude !== undefined) queryParams.append('longitude', params.longitude.toString());
+    if (params?.max_distance_km) queryParams.append('max_distance_km', params.max_distance_km.toString());
+    if (params?.min_cpu) queryParams.append('min_cpu', params.min_cpu.toString());
+    if (params?.min_memory_gb) queryParams.append('min_memory_gb', params.min_memory_gb.toString());
+    if (params?.min_storage_gb) queryParams.append('min_storage_gb', params.min_storage_gb.toString());
+    if (params?.service_type) queryParams.append('service_type', params.service_type);
+    if (params?.api_type) queryParams.append('api_type', params.api_type);
+    if (params?.only_active !== undefined) queryParams.append('only_active', params.only_active.toString());
+    if (params?.only_healthy !== undefined) queryParams.append('only_healthy', params.only_healthy.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+
+    const response = await api.get(`/services/discover?${queryParams.toString()}`);
+
+    // Discovery endpoint returns ServiceDiscoveryResponse[] with { service, discovery_metadata }
+    // Extract just the services
+    const discoveryResults = response.data;
+    let services = discoveryResults.map((result: any) => result.service);
 
     // Add backward compatibility mapping
     services = services.map((service: ImputationService) => {
@@ -293,7 +409,14 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const getServiceReferencePanels = async (serviceId: number): Promise<ReferencePanel[]> => {
-    const response: AxiosResponse<ReferencePanel[]> = await api.get(`/services/${serviceId}/reference_panels/`);
+    // Call service registry microservice directly for reference panels
+    const response: AxiosResponse<ReferencePanel[]> = await serviceRegistryApi.get(`/reference-panels?service_id=${serviceId}`);
+    return response.data;
+  };
+
+  const createReferencePanel = async (panel: Omit<ReferencePanel, 'id' | 'created_at' | 'updated_at' | 'slug'>): Promise<ReferencePanel> => {
+    // Call service registry microservice to create a reference panel
+    const response: AxiosResponse<ReferencePanel> = await serviceRegistryApi.post('/reference-panels', panel);
     return response.data;
   };
 
@@ -366,6 +489,7 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     api,
     apiCall,
     getServices,
+    discoverServices,
     getService,
     createService,
     updateService,
@@ -373,6 +497,7 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     syncReferencePanels,
     getReferencePanels,
     getServiceReferencePanels,
+    createReferencePanel,
     getJobs,
     getJob,
     createJob,

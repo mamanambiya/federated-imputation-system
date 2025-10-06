@@ -143,7 +143,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 # Service proxy
 class ServiceProxy:
     def __init__(self):
-        self.client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+        # Don't follow redirects to preserve multipart form data
+        self.client = httpx.AsyncClient(timeout=30.0, follow_redirects=False)
     
     async def forward_request(
         self,
@@ -158,23 +159,39 @@ class ServiceProxy:
         """Forward request to appropriate microservice."""
         if service_name not in SERVICES:
             raise HTTPException(status_code=404, detail=f"Service {service_name} not found")
-        
+
         service_url = SERVICES[service_name]
-        url = f"{service_url}{path}"
+        # Strip trailing slash from path to avoid FastAPI redirects
+        clean_path = path.rstrip('/') if path != '/' else '/'
+        url = f"{service_url}{clean_path}"
+        logger.warning(f"🔍 FORWARD: original_path='{path}', clean_path='{clean_path}', url='{url}'")
         
         # Remove problematic headers that cause conflicts
         headers_to_remove = {'host', 'content-length', 'transfer-encoding'}
         headers = {k: v for k, v in headers.items() if k.lower() not in headers_to_remove}
         
         try:
-            response = await self.client.request(
-                method=method,
-                url=url,
-                headers=headers,
-                params=params,
-                json=json_data,
-                files=files
-            )
+            # When files are present, use 'data' for form fields instead of 'json'
+            if files:
+                response = await self.client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    params=params,
+                    data=json_data,  # Use 'data' for form fields when uploading files
+                    files=files,
+                    follow_redirects=False  # Don't follow redirects to preserve form data
+                )
+            else:
+                response = await self.client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    params=params,
+                    json=json_data,
+                    files=files,
+                    follow_redirects=False
+                )
             return response
         except httpx.RequestError as e:
             logger.error(f"Service {service_name} request failed: {e}")
@@ -308,15 +325,24 @@ async def proxy_to_service(
             json_data = await request.json()
         elif "multipart/form-data" in content_type:
             form = await request.form()
-            files = {key: (file.filename, file.file, file.content_type) 
-                    for key, file in form.items() if hasattr(file, 'file')}
-            json_data = {key: value for key, value in form.items() 
-                        if not hasattr(value, 'file')}
+            # Separate files from form fields
+            files = {}
+            json_data = {}
+            for key, value in form.items():
+                if hasattr(value, 'file'):
+                    # This is a file upload
+                    files[key] = (value.filename, await value.read(), value.content_type)
+                else:
+                    # This is a regular form field
+                    json_data[key] = value
     
     # Forward request to service
+    # Strip trailing slash from path to avoid FastAPI redirects that lose form data
+    forward_path = f"/{path}".rstrip('/') if path else '/'
+    logger.warning(f"🔍 PROXY: path='{path}', forward_path='{forward_path}', full_path='{full_path}'")
     response = await proxy.forward_request(
         service_name=service_name,
-        path=f"/{path}",  # Remove /api prefix for services
+        path=forward_path,  # Remove /api prefix and trailing slash
         method=request.method,
         headers=headers,
         params=dict(request.query_params),
