@@ -276,14 +276,26 @@ class ExternalServiceClient:
             logger.error(f"Status check failed: {e}")
             return {'status': 'error', 'error': str(e)}
     
-    async def _check_michigan_status(self, service_info: Dict[str, Any], external_job_id: str) -> Dict[str, Any]:
+    async def _check_michigan_status(self, service_info: Dict[str, Any], external_job_id: str, user_id: int = None) -> Dict[str, Any]:
         """Check Michigan job status."""
         try:
             base_url = service_info['base_url'].rstrip('/')
-            status_url = f"{base_url}/api/v2/jobs/{external_job_id}/status"
+            # Michigan API: Get full job details (not /status endpoint)
+            status_url = f"{base_url}/api/v2/jobs/{external_job_id}"
 
-            # Get API token for authenticated status check
-            api_token = service_info.get('api_config', {}).get('api_token')
+            # Get user's API token for authenticated status check
+            api_token = None
+            if user_id:
+                service_id = service_info.get('id')
+                async with httpx.AsyncClient() as user_client:
+                    cred_response = await user_client.get(
+                        f"{USER_SERVICE_URL}/internal/users/{user_id}/service-credentials/{service_id}"
+                    )
+                    if cred_response.status_code == 200:
+                        user_cred = cred_response.json()
+                        if user_cred.get('has_credential'):
+                            api_token = user_cred.get('api_token')
+
             headers = {'X-Auth-Token': api_token} if api_token else {}
 
             response = await self.client.get(status_url, headers=headers)
@@ -291,30 +303,57 @@ class ExternalServiceClient:
 
             result = response.json()
 
-            # Michigan status mapping to our internal states
+            # Michigan uses numeric state codes (not strings)
+            # 1=waiting, 2=running, 3=success(exportable), 4=success(complete), 5=failed, 6=cancelled, 7=deleted
+            state_code = result.get('state', 0)
             status_mapping = {
-                'waiting': 'queued',
-                'running': 'running',
-                'success': 'completed',
-                'error': 'failed',
-                'canceled': 'cancelled',
-                'complete': 'completed'  # Some Michigan servers use 'complete'
+                1: 'queued',      # waiting
+                2: 'running',     # running
+                3: 'completed',   # success (exportable)
+                4: 'completed',   # success (complete)
+                5: 'failed',      # error
+                6: 'cancelled',   # cancelled
+                7: 'cancelled'    # deleted/retired
             }
 
-            external_status = result.get('state', 'unknown').lower()
-            internal_status = status_mapping.get(external_status, 'unknown')
+            internal_status = status_mapping.get(state_code, 'unknown')
 
-            # Extract progress (Michigan often provides positionInQueue or executionTime)
-            progress = result.get('progress', 0)
-            if progress == 0 and internal_status == 'running':
-                # If no progress but running, estimate based on time
-                progress = 50
+            # Calculate progress based on state and steps
+            steps = result.get('steps', [])
+            total_steps = len(steps) if steps else 4
+            completed_steps = sum(1 for step in steps if step.get('logMessages'))
+
+            if state_code == 1:  # waiting
+                progress = 5
+            elif state_code == 2:  # running
+                progress = 10 + int((completed_steps / total_steps) * 80) if total_steps > 0 else 50
+            elif state_code in [3, 4]:  # completed
+                progress = 100
+            elif state_code == 5:  # failed
+                progress = completed_steps * 25 if completed_steps else 10
+            else:
+                progress = 0
+
+            # Extract error message if failed
+            error_message = None
+            if state_code == 5:
+                for step in steps:
+                    for msg in step.get('logMessages', []):
+                        if msg.get('type') == 0 and 'error' in msg.get('message', '').lower():
+                            error_message = msg.get('message')
+                            break
+                    if error_message:
+                        break
+
+                if not error_message:
+                    error_message = 'Job failed during execution'
 
             return {
                 'status': internal_status,
                 'progress': progress,
-                'message': result.get('message', '') or external_status,
-                'service_response': result
+                'message': error_message or f'Job {internal_status}',
+                'service_response': result,
+                'steps': steps
             }
 
         except Exception as e:
@@ -323,7 +362,8 @@ class ExternalServiceClient:
                 'status': 'error',
                 'progress': 0,
                 'message': str(e),
-                'service_response': {}
+                'service_response': {},
+                'steps': []
             }
     
     async def _check_ga4gh_status(self, service_info: Dict[str, Any], external_job_id: str) -> Dict[str, Any]:
@@ -709,6 +749,130 @@ def cancel_job(job_id: str):
         logger.error(f"Job cancellation failed for {job_id}: {e}")
     finally:
         db.close()
+
+
+@app.task
+def poll_job_statuses():
+    """
+    Periodic task to poll external service job statuses and update internal records.
+    Should be called by celery-beat every 2-5 minutes.
+    """
+    logger.info("Polling job statuses from external services")
+
+    db = SessionLocal()
+    try:
+        # Get all running jobs with external job IDs
+        running_jobs = db.query(ImputationJob).filter(
+            ImputationJob.status.in_(['queued', 'running']),
+            ImputationJob.external_job_id.isnot(None)
+        ).all()
+
+        logger.info(f"Found {len(running_jobs)} jobs to check")
+
+        for job in running_jobs:
+            try:
+                # Get service info
+                service_info = asyncio.run(get_service_info(job.service_id))
+
+                # Check status based on service type
+                service_type = service_info.get('api_type', 'michigan')
+                client = ExternalServiceClient()
+
+                if service_type == 'michigan':
+                    status_result = asyncio.run(
+                        client._check_michigan_status(service_info, job.external_job_id, job.user_id)
+                    )
+                elif service_type == 'ga4gh':
+                    status_result = asyncio.run(
+                        client._check_ga4gh_status(service_info, job.external_job_id)
+                    )
+                elif service_type == 'dnastack':
+                    status_result = asyncio.run(
+                        client._check_dnastack_status(service_info, job.external_job_id)
+                    )
+                else:
+                    logger.warning(f"Unknown service type {service_type} for job {job.id}")
+                    continue
+
+                # Update job status if changed
+                new_status = status_result.get('status')
+                new_progress = status_result.get('progress', 0)
+                message = status_result.get('message', '')
+
+                if new_status and new_status != job.status:
+                    logger.info(f"Job {job.id}: {job.status} -> {new_status} (progress: {new_progress}%)")
+
+                    old_status = job.status
+                    job.status = new_status
+                    job.progress_percentage = new_progress
+                    job.updated_at = datetime.utcnow()
+
+                    # Set timestamps
+                    if new_status == 'running' and not job.started_at:
+                        job.started_at = datetime.utcnow()
+
+                    if new_status in ['completed', 'failed', 'cancelled']:
+                        if not job.completed_at:
+                            job.completed_at = datetime.utcnow()
+
+                        if job.started_at:
+                            execution_time = (job.completed_at - job.started_at).total_seconds()
+                            job.execution_time_seconds = int(execution_time)
+
+                        if new_status == 'failed':
+                            job.error_message = message
+
+                    db.commit()
+
+                    # Create status update record
+                    status_update = JobStatusUpdate(
+                        job_id=job.id,
+                        status=new_status,
+                        message=message or f'Job {new_status}',
+                        progress_percentage=new_progress
+                    )
+                    db.add(status_update)
+                    db.commit()
+
+                    # Send notification to user
+                    try:
+                        asyncio.run(send_notification(
+                            user_id=job.user_id,
+                            notification_type="job_status_update",
+                            title=f"Job {new_status.title()}",
+                            message=f"Your job '{job.name}' is now {new_status}",
+                            data={"job_id": str(job.id), "status": new_status}
+                        ))
+                    except Exception as e:
+                        logger.warning(f"Failed to send notification: {e}")
+
+                elif new_progress != job.progress_percentage:
+                    # Update progress even if status hasn't changed
+                    job.progress_percentage = new_progress
+                    job.updated_at = datetime.utcnow()
+                    db.commit()
+
+            except Exception as e:
+                logger.error(f"Error checking status for job {job.id}: {e}")
+                continue
+
+        logger.info("Completed job status polling")
+
+    except Exception as e:
+        logger.error(f"Job status polling failed: {e}")
+    finally:
+        db.close()
+
+
+# Configure celery beat schedule for periodic tasks
+app.conf.beat_schedule = {
+    'poll-job-statuses': {
+        'task': 'worker.poll_job_statuses',
+        'schedule': 120.0,  # Run every 2 minutes
+    },
+}
+app.conf.timezone = 'UTC'
+
 
 if __name__ == '__main__':
     app.start()
