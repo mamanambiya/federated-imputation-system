@@ -127,7 +127,7 @@ class ExternalServiceClient:
                 'refpanel': panel_identifier,  # Cloudgene app format: apps@{app-id}@{version}
                 'build': job_data['build'],
                 'phasing': 'eagle' if job_data.get('phasing', True) else 'no_phasing',
-                'population': job_data.get('population', 'mixed'),
+                'population': job_data.get('population') or 'mixed',  # Default to 'mixed' if None/empty
                 'mode': 'imputation'
             }
 
