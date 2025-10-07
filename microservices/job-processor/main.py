@@ -92,7 +92,8 @@ class ImputationJob(Base):
     input_file_id = Column(Integer)  # Reference to file in file-manager service
     input_file_name = Column(String(255))
     input_file_size = Column(Integer)
-    results_file_id = Column(Integer)  # Reference to results file in file-manager service
+    # Note: results_file_id column does not exist in current schema
+    # Result files are managed separately by the file-manager service
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
@@ -225,6 +226,13 @@ class JobStatusUpdateResponse(BaseModel):
     message: Optional[str]
     details: Dict[str, Any]
     timestamp: datetime
+
+class JobFileResponse(BaseModel):
+    id: int
+    name: str
+    size: int
+    type: str  # 'input' or 'result'
+    created_at: Optional[datetime] = None
 
 class JobTemplateCreate(BaseModel):
     name: str
@@ -666,6 +674,38 @@ async def get_job_status_updates(job_id: str, db: Session = Depends(get_db)):
         )
         for update in updates
     ]
+
+@app.get("/jobs/{job_id}/files", response_model=List[JobFileResponse])
+async def get_job_files(job_id: str, db: Session = Depends(get_db)):
+    """
+    Get list of files associated with a job (input files and result files).
+
+    Returns:
+    - Input file information if available
+    - Result file information can be retrieved from file-manager service separately
+    """
+    job = db.query(ImputationJob).filter(ImputationJob.id == job_id).first()
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    files = []
+
+    # Add input file if available
+    if job.input_file_id and job.input_file_name:
+        files.append(JobFileResponse(
+            id=job.input_file_id,
+            name=job.input_file_name,
+            size=job.input_file_size or 0,
+            type="input",
+            created_at=job.created_at
+        ))
+
+    # Note: Result files are stored separately and managed by the file-manager service
+    # The frontend can query the file-manager service directly for result files
+    # using the job_id if needed
+
+    return files
 
 @app.get("/jobs/{job_id}/results")
 async def download_job_results(job_id: str, db: Session = Depends(get_db)):

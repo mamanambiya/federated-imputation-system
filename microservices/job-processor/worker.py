@@ -60,7 +60,8 @@ class ExternalServiceClient:
         """Submit job to Michigan Imputation Server (including H3Africa)."""
         try:
             base_url = service_info['base_url'].rstrip('/')
-            submit_url = f"{base_url}/api/v2/jobs/submit"
+            # Michigan API requires specific tool endpoint (imputationserver2 for newer versions)
+            submit_url = f"{base_url}/api/v2/jobs/submit/imputationserver2"
 
             # Get USER's API token from user service
             user_id = job_data.get('user_id')
@@ -102,8 +103,9 @@ class ExternalServiceClient:
             logger.info(f"Michigan API: Downloaded {len(file_content)} bytes")
 
             # Prepare multipart form data with file and parameters
+            # Michigan API expects 'files' key for file upload
             files = {
-                'input-files': ('input.vcf.gz', file_content, 'application/gzip')
+                'files': ('input.vcf.gz', file_content, 'application/gzip')
             }
 
             # Fetch reference panel details to get Cloudgene app ID
@@ -120,9 +122,8 @@ class ExternalServiceClient:
 
             logger.info(f"Michigan API: Using reference panel '{panel_identifier}' (from panel ID: {job_data['reference_panel']})")
 
-            # Michigan API parameters
+            # Michigan API parameters (imputationserver2 auto-detects format from file extension)
             data = {
-                'input-format': job_data['input_format'],
                 'refpanel': panel_identifier,  # Cloudgene app format: apps@{app-id}@{version}
                 'build': job_data['build'],
                 'phasing': 'eagle' if job_data.get('phasing', True) else 'no_phasing',
@@ -136,6 +137,7 @@ class ExternalServiceClient:
             }
 
             logger.info(f"Michigan API: Submitting job to {submit_url}")
+            logger.info(f"Michigan API: Full parameters - {data}")
             logger.info(f"Michigan API: Parameters - panel: {data['refpanel']}, build: {data['build']}, phasing: {data['phasing']}")
 
             # Submit job with authentication and extended timeout for file upload
@@ -144,7 +146,7 @@ class ExternalServiceClient:
                 files=files,
                 data=data,
                 headers=headers,
-                timeout=httpx.Timeout(connect=60.0, read=300.0)  # 5min for upload
+                timeout=httpx.Timeout(connect=60.0, read=300.0, write=60.0, pool=30.0)  # 5min for upload
             )
             response.raise_for_status()
 
@@ -404,7 +406,7 @@ class ExternalServiceClient:
             response = await self.client.get(
                 results_url,
                 headers=headers,
-                timeout=httpx.Timeout(connect=30.0, read=600.0)  # 10min for download
+                timeout=httpx.Timeout(connect=30.0, read=600.0, write=30.0, pool=30.0)  # 10min for download
             )
             response.raise_for_status()
 
@@ -472,7 +474,13 @@ async def get_file_download_url(file_id: int) -> str:
         response = await client.get(f"{FILE_MANAGER_URL}/files/{file_id}/download")
         response.raise_for_status()
         result = response.json()
-        return result['download_url']
+        download_url = result['download_url']
+
+        # Ensure absolute URL - prepend FILE_MANAGER_URL if relative path
+        if download_url.startswith('/'):
+            download_url = f"{FILE_MANAGER_URL}{download_url}"
+
+        return download_url
 
 async def send_notification(user_id: int, notification_type: str, title: str, message: str, data: Dict[str, Any] = None):
     """Send notification via notification service."""
@@ -520,20 +528,24 @@ def update_job_status_sync(job_id: str, status: str, progress: int = None, messa
             )
             db.add(status_update)
             db.commit()
-            
-            # Send notification asynchronously
-            asyncio.create_task(send_notification(
-                user_id=job.user_id,
-                notification_type="job_status_update",
-                title=f"Job {status.title()}",
-                message=f"Your job '{job.name}' is now {status}",
-                data={
-                    "job_id": str(job.id),
-                    "job_name": job.name,
-                    "status": status,
-                    "progress": job.progress_percentage
-                }
-            ))
+
+            # Send notification asynchronously in a background thread
+            # Note: Using asyncio.run() instead of create_task() for Celery compatibility
+            try:
+                asyncio.run(send_notification(
+                    user_id=job.user_id,
+                    notification_type="job_status_update",
+                    title=f"Job {status.title()}",
+                    message=f"Your job '{job.name}' is now {status}",
+                    data={
+                        "job_id": str(job.id),
+                        "job_name": job.name,
+                        "status": status,
+                        "progress": job.progress_percentage
+                    }
+                ))
+            except Exception as e:
+                logger.warning(f"Failed to send notification: {e}")
     finally:
         db.close()
 
@@ -616,21 +628,24 @@ def process_job(self, job_id: str):
 
                     # Upload results to file manager
                     logger.info(f"Job {job_id}: Uploading results to file manager ({len(results_data)} bytes)")
-                    async with httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=600.0)) as fm_client:
-                        files = {'file': ('results.zip', results_data, 'application/zip')}
-                        data = {'job_id': str(job_id), 'file_type': 'output'}
-                        upload_response = await fm_client.post(
-                            f"{FILE_MANAGER_URL}/files/upload",
-                            files=files,
-                            data=data
-                        )
-                        upload_response.raise_for_status()
-                        result_file_info = upload_response.json()
 
-                        # Update job with results file info
-                        job.results_file_id = result_file_info.get('id')
-                        db.commit()
-                        logger.info(f"Job {job_id}: Results file stored with ID {job.results_file_id}")
+                    async def upload_results():
+                        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=30.0, read=600.0, write=60.0, pool=30.0)) as fm_client:
+                            files = {'file': ('results.zip', results_data, 'application/zip')}
+                            data = {'job_id': str(job_id), 'file_type': 'output'}
+                            upload_response = await fm_client.post(
+                                f"{FILE_MANAGER_URL}/files/upload",
+                                files=files,
+                                data=data
+                            )
+                            upload_response.raise_for_status()
+                            return upload_response.json()
+
+                    result_file_info = asyncio.run(upload_results())
+
+                    # Note: results_file_id field doesn't exist in current schema
+                    # Results are tracked separately through file manager
+                    logger.info(f"Job {job_id}: Results file uploaded with ID {result_file_info.get('id')}")
 
                 except Exception as e:
                     error_msg = f"Completed but failed to retrieve results: {str(e)}"
