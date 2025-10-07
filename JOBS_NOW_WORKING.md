@@ -207,6 +207,38 @@ curl -s "https://impute.afrigen-d.org/api/v2/jobs/YOUR_EXTERNAL_JOB_ID" \
   -H "X-Auth-Token: YOUR_TOKEN"
 ```
 
+## Update: Population Parameter Fix (Oct 7, 2025)
+
+**Issue:** Jobs were failing Michigan validation with command-line parsing error:
+```
+ERROR: Expected parameter for option '--population' but found '--phasing'
+```
+
+**Root Cause:** When `job_data['population']` was `None`, the code sent `None` to the API, causing the command to appear as `--population --phasing eagle` instead of `--population mixed --phasing eagle`.
+
+**Solution:** Changed [worker.py:130](microservices/job-processor/worker.py#L130) to use `or` operator:
+```python
+# Before
+'population': job_data.get('population', 'mixed'),  # Returns None if explicitly null
+
+# After
+'population': job_data.get('population') or 'mixed',  # Always 'mixed' if None/empty
+```
+
+**Verification:**
+```
+Michigan API: Full parameters - {
+    'refpanel': 'apps@h3africa-v6hc-s@1.0.0',
+    'build': 'hg38',
+    'phasing': 'eagle',
+    'population': 'mixed',  # ✅ Now properly set
+    'mode': 'imputation'
+}
+HTTP 200 OK - Job ID: job-20251007-101454-996
+```
+
+**Note:** Jobs may still fail Michigan validation if the input VCF doesn't meet data quality requirements (e.g., minimum samples, proper formatting). This is normal data validation by the Michigan server, not a code issue. The integration is working correctly.
+
 ## Next Steps
 
 ### For Full Production Deployment:
