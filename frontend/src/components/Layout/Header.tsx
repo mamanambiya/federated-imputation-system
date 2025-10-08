@@ -49,7 +49,7 @@ const Header: React.FC<HeaderProps> = ({
 
   return (
     <AppBar position="fixed" sx={headerStyles}>
-      <Toolbar>
+      <Toolbar sx={{ minHeight: '64px', display: 'flex', alignItems: 'center' }}>
         {/* Left Side - Menu/Back Button */}
         {isAuthenticated && onMenuClick && (
           <IconButton
@@ -76,35 +76,36 @@ const Header: React.FC<HeaderProps> = ({
 
         {/* Center - Logo and Title */}
         <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
-          <Box 
-            component="a" 
+          <Box
+            component="a"
             href="/"
-            sx={{ 
-              display: 'flex', 
-              alignItems: 'center', 
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
               textDecoration: 'none',
               cursor: 'pointer',
               '&:hover': {
-                opacity: 0.8
+                opacity: 0.85,
               }
             }}
           >
-            <img 
-              src="/afrigen-d-logo.png" 
-              alt="AfriGen-D" 
-              style={{ 
-                height: 40, 
+            <img
+              src="/afrigen-d-logo.png"
+              alt="AfriGen-D"
+              style={{
+                height: 40,
                 marginRight: 12,
                 filter: logoFilter
-              }} 
+              }}
             />
-            <Typography 
-              variant="h6" 
-              component="div" 
-              sx={{ 
-                fontWeight: 'bold', 
+            <Typography
+              variant="h6"
+              component="div"
+              sx={{
+                fontWeight: 'bold',
                 color: titleColor,
-                flexGrow: isAuthenticated ? 1 : 0
+                flexGrow: isAuthenticated ? 1 : 0,
+                fontSize: { xs: '0.95rem', sm: '1.1rem', md: '1.25rem' },
               }}
             >
               Federated Genomic Imputation Platform

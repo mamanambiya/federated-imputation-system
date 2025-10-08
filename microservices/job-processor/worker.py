@@ -35,7 +35,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 app = Celery('worker', broker=REDIS_URL, backend=REDIS_URL)
 
 # Import models (assuming they're in the same package)
-from main import ImputationJob, JobStatusUpdate, JobStatus
+from main import ImputationJob, JobStatusUpdate, JobLog, JobStatus
 
 class ExternalServiceClient:
     """Client for communicating with external imputation services."""
@@ -259,13 +259,14 @@ class ExternalServiceClient:
                 'status': 'failed'
             }
     
-    async def check_job_status(self, service_info: Dict[str, Any], external_job_id: str) -> Dict[str, Any]:
+    async def check_job_status(self, service_info: Dict[str, Any], external_job_id: str, user_id: int = None) -> Dict[str, Any]:
         """Check job status on external service."""
         service_type = service_info.get('api_type', 'michigan')
-        
+
         try:
             if service_type == 'michigan':
-                return await self._check_michigan_status(service_info, external_job_id)
+                # Michigan requires user_id for authentication
+                return await self._check_michigan_status(service_info, external_job_id, user_id)
             elif service_type == 'ga4gh':
                 return await self._check_ga4gh_status(service_info, external_job_id)
             elif service_type == 'dnastack':
@@ -280,10 +281,11 @@ class ExternalServiceClient:
         """Check Michigan job status."""
         try:
             base_url = service_info['base_url'].rstrip('/')
-            # Michigan API: Get full job details (not /status endpoint)
+            # Michigan API: Get full job details endpoint (NO /status suffix - that returns 401)
             status_url = f"{base_url}/api/v2/jobs/{external_job_id}"
 
             # Get user's API token for authenticated status check
+            # Michigan API REQUIRES authentication for all endpoints including status checks
             api_token = None
             if user_id:
                 service_id = service_info.get('id')
@@ -296,7 +298,17 @@ class ExternalServiceClient:
                         if user_cred.get('has_credential'):
                             api_token = user_cred.get('api_token')
 
-            headers = {'X-Auth-Token': api_token} if api_token else {}
+            if not api_token:
+                logger.error(f"Michigan API: Cannot check status without API token for user {user_id}")
+                return {
+                    'status': 'error',
+                    'progress': 0,
+                    'message': 'Authentication required for status check',
+                    'service_response': {},
+                    'steps': []
+                }
+
+            headers = {'X-Auth-Token': api_token}
 
             response = await self.client.get(status_url, headers=headers)
             response.raise_for_status()
@@ -651,9 +663,9 @@ def process_job(self, job_id: str):
         while check_count < max_checks:
             time.sleep(30)  # Wait 30 seconds between checks
             check_count += 1
-            
-            # Check job status on external service
-            status_result = asyncio.run(client.check_job_status(service_info, job.external_job_id))
+
+            # Check job status on external service (pass user_id for Michigan auth)
+            status_result = asyncio.run(client.check_job_status(service_info, job.external_job_id, job.user_id))
             
             external_status = status_result.get('status', 'unknown')
             progress = status_result.get('progress', 0)
@@ -793,6 +805,41 @@ def poll_job_statuses():
                 else:
                     logger.warning(f"Unknown service type {service_type} for job {job.id}")
                     continue
+
+                # Extract logs from steps (Michigan API specific)
+                steps = status_result.get('steps', [])
+
+                # Sync logs to database
+                if steps:
+                    try:
+                        # Clear old logs for this job (we'll replace with fresh data)
+                        db.query(JobLog).filter(JobLog.job_id == job.id).delete()
+
+                        # Parse and store logs from each step
+                        for step_index, step in enumerate(steps):
+                            step_name = step.get('name', f'Step {step_index + 1}')
+                            log_messages = step.get('logMessages', [])
+
+                            for msg in log_messages:
+                                # Michigan message types: 0=error, 1=info, 2=warning (assumed)
+                                msg_type_mapping = {0: 'error', 1: 'info', 2: 'warning'}
+                                log_type = msg_type_mapping.get(msg.get('type', 1), 'info')
+
+                                job_log = JobLog(
+                                    job_id=job.id,
+                                    step_name=step_name,
+                                    step_index=step_index,
+                                    log_type=log_type,
+                                    message=msg.get('message', ''),
+                                    timestamp=datetime.utcnow()
+                                )
+                                db.add(job_log)
+
+                        db.commit()
+                        logger.info(f"Job {job.id}: Synced {sum(len(s.get('logMessages', [])) for s in steps)} log messages from {len(steps)} steps")
+                    except Exception as e:
+                        logger.error(f"Job {job.id}: Failed to sync logs: {e}")
+                        db.rollback()
 
                 # Update job status if changed
                 new_status = status_result.get('status')

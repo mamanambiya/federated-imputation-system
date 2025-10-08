@@ -7,13 +7,13 @@ services:
     environment:
       POSTGRES_DB: federated_imputation
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ChangeMeToStrongPassword}
       POSTGRES_MULTIPLE_DATABASES: user_management_db,service_registry_db,job_processing_db,file_management_db,notification_db,monitoring_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/create-multiple-databases.sh:/docker-entrypoint-initdb.d/create-multiple-databases.sh
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -25,7 +25,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -90,7 +90,7 @@ services:
     ports:
       - "8001:8001"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/user_management_db
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/user_management_db
       - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
     depends_on:
       postgres:
@@ -110,7 +110,7 @@ services:
     ports:
       - "8002:8002"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/service_registry_db
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/service_registry_db
     depends_on:
       postgres:
         condition: service_healthy
@@ -129,7 +129,7 @@ services:
     ports:
       - "8003:8003"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/job_processing_db
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/job_processing_db
       - REDIS_URL=redis://redis:6379
       - USER_SERVICE_URL=http://user-service:8001
       - SERVICE_REGISTRY_URL=http://service-registry:8002
@@ -155,7 +155,7 @@ services:
     ports:
       - "8004:8004"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/file_management_db
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/file_management_db
       - STORAGE_PATH=/app/storage
       - MAX_FILE_SIZE_MB=500
     volumes:
@@ -178,7 +178,7 @@ services:
     ports:
       - "8005:8005"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/notification_db
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/notification_db
       - REDIS_URL=redis://redis:6379
       - SMTP_HOST=${SMTP_HOST:-localhost}
       - SMTP_PORT=${SMTP_PORT:-587}
@@ -204,7 +204,7 @@ services:
     ports:
       - "8006:8006"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/monitoring_db
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/monitoring_db
       - REDIS_URL=redis://redis:6379
       - USER_SERVICE_URL=http://user-service:8001
       - SERVICE_REGISTRY_URL=http://service-registry:8002
@@ -249,9 +249,8 @@ services:
     build:
       context: ./microservices/job-processor
       dockerfile: Dockerfile.worker
-      dockerfile: Dockerfile.worker
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/job_processing_db
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/job_processing_db
       - REDIS_URL=redis://redis:6379
       - USER_SERVICE_URL=http://user-service:8001
       - SERVICE_REGISTRY_URL=http://service-registry:8002
@@ -271,7 +270,7 @@ services:
       context: ./microservices/job-processor
       dockerfile: Dockerfile.worker
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/job_processing_db
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/job_processing_db
       - REDIS_URL=redis://redis:6379
       - USER_SERVICE_URL=http://user-service:8001
       - SERVICE_REGISTRY_URL=http://service-registry:8002

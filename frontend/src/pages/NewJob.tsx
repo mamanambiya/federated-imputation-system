@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  getServiceToken,
+  saveServiceToken,
+  isTokenStorageEnabled,
+} from '../utils/tokenStorage';
+import {
   Box,
   Typography,
   Stepper,
@@ -109,6 +114,8 @@ const NewJob: React.FC = () => {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [duplicateError, setDuplicateError] = useState<string>('');
   const [userToken, setUserToken] = useState<string>('');
+  const [saveToken, setSaveToken] = useState<boolean>(false);
+  const [tokenAutoFilled, setTokenAutoFilled] = useState<boolean>(false);
 
   useEffect(() => {
     loadServices();
@@ -119,6 +126,19 @@ const NewJob: React.FC = () => {
     if (selectedModalService) {
       console.log('Modal service selected:', selectedModalService);
       loadReferencePanels(parseInt(selectedModalService));
+
+      // Auto-fill saved token if available
+      const savedToken = getServiceToken(parseInt(selectedModalService));
+      if (savedToken) {
+        setUserToken(savedToken);
+        setTokenAutoFilled(true);
+        setSaveToken(true); // Auto-check save checkbox if token was loaded
+        console.log('Loaded saved token for service:', selectedModalService);
+      } else {
+        setUserToken(''); // Clear token if switching to a service without saved token
+        setTokenAutoFilled(false);
+        setSaveToken(isTokenStorageEnabled()); // Check save box by default if storage is enabled
+      }
     }
   }, [selectedModalService]);
 
@@ -184,6 +204,8 @@ const NewJob: React.FC = () => {
     setTermsAccepted(false);
     setDuplicateError('');
     setUserToken('');
+    setSaveToken(false);
+    setTokenAutoFilled(false);
   };
 
   const handleAddService = () => {
@@ -191,18 +213,30 @@ const NewJob: React.FC = () => {
       const service = services.find(s => s.id.toString() === selectedModalService);
       const panels = referencePanelsByService[selectedModalService] || [];
       const panel = panels.find(p => p.id.toString() === selectedModalPanel);
-      
+
       if (service && panel) {
         // Check if this service-panel combination already exists
         const isDuplicate = jobData.selectedServices.some(
           s => s.serviceId === selectedModalService && s.panelId === selectedModalPanel
         );
-        
+
         if (isDuplicate) {
           setDuplicateError('This service and reference panel combination has already been selected.');
           return;
         }
-        
+
+        // Save token to storage if user opted to save it
+        if (saveToken && userToken && userToken.trim()) {
+          const saved = saveServiceToken(
+            parseInt(selectedModalService),
+            service.name,
+            userToken
+          );
+          if (saved) {
+            console.log('Token saved for service:', service.name);
+          }
+        }
+
         const newService: SelectedService = {
           serviceId: selectedModalService,
           serviceName: service.name,
@@ -211,7 +245,7 @@ const NewJob: React.FC = () => {
           termsAccepted: true,
           userToken: userToken || undefined,
         };
-        
+
         setJobData(prev => ({
           ...prev,
           selectedServices: [...prev.selectedServices, newService]
@@ -827,23 +861,64 @@ const NewJob: React.FC = () => {
                 </FormControl>
 
                 {/* User Authentication Token */}
-                <TextField
-                  fullWidth
-                  label="User Authentication Token"
-                  value={userToken}
-                  onChange={(e) => setUserToken(e.target.value)}
-                  placeholder="Enter your personal access token for this service"
-                  helperText="This token will be used to authenticate your job submissions. It may be different from the admin token."
-                  sx={{ mb: 3 }}
-                  type="password"
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <Key />
-                      </InputAdornment>
-                    ),
-                  }}
-                />
+                <Box sx={{ mb: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      User Authentication Token
+                    </Typography>
+                    {tokenAutoFilled && (
+                      <Chip
+                        label="Auto-filled from saved token"
+                        size="small"
+                        color="success"
+                        icon={<CheckCircle />}
+                      />
+                    )}
+                  </Box>
+                  <TextField
+                    fullWidth
+                    value={userToken}
+                    onChange={(e) => {
+                      setUserToken(e.target.value);
+                      setTokenAutoFilled(false); // Clear auto-filled flag if user edits
+                    }}
+                    placeholder="Enter your personal access token for this service"
+                    helperText="This token will be used to authenticate your job submissions to this service"
+                    type="password"
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <Key />
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+
+                  {/* Save Token Checkbox */}
+                  {isTokenStorageEnabled() && (
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={saveToken}
+                          onChange={(e) => setSaveToken(e.target.checked)}
+                          color="primary"
+                        />
+                      }
+                      label={
+                        <Typography variant="body2">
+                          Save this token for 30 days (auto-fill next time)
+                        </Typography>
+                      }
+                      sx={{ mt: 1 }}
+                    />
+                  )}
+
+                  {!isTokenStorageEnabled() && (
+                    <Alert severity="info" sx={{ mt: 1 }}>
+                      Enable token storage in Settings to save tokens for future use
+                    </Alert>
+                  )}
+                </Box>
 
                 {/* Terms & Conditions */}
                 <Box sx={{ mb: 2 }}>

@@ -51,7 +51,7 @@ import { useApi, ImputationJob, ImputationService } from '../contexts/ApiContext
 
 const Jobs: React.FC = () => {
   const navigate = useNavigate();
-  const { getJobs, getServices, cancelJob, retryJob } = useApi();
+  const { getJobs, getServices, cancelJob, retryJob, formatDuration } = useApi();
   
   const [jobs, setJobs] = useState<ImputationJob[]>([]);
   const [services, setServices] = useState<ImputationService[]>([]);
@@ -363,7 +363,7 @@ const Jobs: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <Typography variant="caption">
-                      {job.duration_display || '-'}
+                      {formatDuration(job.execution_time_seconds)}
                     </Typography>
                   </TableCell>
                   <TableCell align="right">

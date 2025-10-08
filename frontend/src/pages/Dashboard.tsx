@@ -52,11 +52,12 @@ import {
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { getDashboardStats } = useApi();
+  const { getDashboardStats, getServices, formatDuration } = useApi();
   const { notifyApiError, notifySuccess, notifyInfo } = useNotificationHelpers();
   const { loading, error, startLoading, stopLoading, setLoadingError } = useLoadingState(true);
 
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [services, setServices] = useState<any[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
 
@@ -81,7 +82,10 @@ const Dashboard: React.FC = () => {
         startLoading();
       }
 
-      const data = await getDashboardStats();
+      const [data, servicesData] = await Promise.all([
+        getDashboardStats(),
+        getServices()
+      ]);
 
       // Check if we received fallback data
       if (data.status === 'fallback') {
@@ -91,6 +95,7 @@ const Dashboard: React.FC = () => {
       }
 
       setStats(data);
+      setServices(servicesData);
       setLastUpdated(new Date());
 
     } catch (err) {
@@ -457,7 +462,7 @@ const Dashboard: React.FC = () => {
                       divider={index < stats.recent_jobs.length - 1}
                     >
                       <ListItemIcon>
-                        {getServiceIcon(job.service.service_type)}
+                        {getServiceIcon(services.find(s => s.id === job.service_id)?.service_type || '')}
                       </ListItemIcon>
                       <ListItemText
                         primary={
@@ -478,7 +483,7 @@ const Dashboard: React.FC = () => {
                         secondary={
                           <Box>
                             <Typography variant="caption" color="text.secondary">
-                              {job.service.name} • {format(new Date(job.created_at), 'MMM dd, HH:mm')}
+                              {services.find(s => s.id === job.service_id)?.name || `Service #${job.service_id}`} • {format(new Date(job.created_at), 'MMM dd, HH:mm')}
                             </Typography>
                             {['pending', 'queued', 'running'].includes(job.status) && (
                               <LinearProgress

@@ -105,7 +105,7 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
         onMenuClick={onMenuClick}
       />
       
-      {/* User Menu (positioned at top right, but keep it there for now) */}
+      {/* User Menu (vertically centered with responsive design) */}
       <Box sx={{
         position: 'fixed',
         top: 0,
@@ -113,12 +113,41 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
         height: '64px',
         display: 'flex',
         alignItems: 'center',
-        zIndex: 9999
+        zIndex: 9999,
+        // Responsive padding
+        px: { xs: 1, sm: 2, md: 3 }
       }}>
         {user && (
           <>
-            <Box sx={{ display: 'flex', alignItems: 'center', px: 2 }}>
-              <Typography variant="body2" sx={{ mr: 2, color: 'white' }}>
+            <Box sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: { xs: 1, sm: 1.5 },
+              borderRadius: '8px',
+              px: { xs: 1, sm: 1.5 },
+              py: 0.5,
+              cursor: 'pointer',
+              '&:hover': {
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              }
+            }}
+            onClick={handleMenu}
+            role="button"
+            tabIndex={0}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                handleMenu(e as any);
+              }
+            }}
+            >
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'white',
+                  fontWeight: 500,
+                  display: { xs: 'none', sm: 'block' },
+                }}
+              >
                 {user.first_name} {user.last_name}
               </Typography>
               <IconButton
@@ -127,9 +156,19 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
                 aria-controls="menu-appbar"
                 aria-haspopup="true"
                 onClick={handleMenu}
-                sx={{ color: 'white' }}
+                sx={{
+                  color: 'white',
+                  p: 0.5,
+                }}
               >
-                <Avatar sx={{ width: 32, height: 32 }}>
+                <Avatar sx={{
+                  width: { xs: 32, sm: 36 },
+                  height: { xs: 32, sm: 36 },
+                  bgcolor: 'primary.dark',
+                  fontWeight: 600,
+                  fontSize: { xs: '0.9rem', sm: '1rem' },
+                  border: '2px solid rgba(255, 255, 255, 0.3)',
+                }}>
                   {user.first_name?.charAt(0) || user.username?.charAt(0)}
                 </Avatar>
               </IconButton>
@@ -148,18 +187,59 @@ const Navbar: React.FC<NavbarProps> = ({ onMenuClick }) => {
               }}
               open={Boolean(anchorEl)}
               onClose={handleClose}
+              TransitionComponent={Fade}
+              slotProps={{
+                paper: {
+                  elevation: 8,
+                  sx: {
+                    mt: 1.5,
+                    minWidth: 200,
+                    borderRadius: 2,
+                    overflow: 'visible',
+                    filter: 'drop-shadow(0px 4px 12px rgba(0,0,0,0.15))',
+                    '&:before': {
+                      content: '""',
+                      display: 'block',
+                      position: 'absolute',
+                      top: 0,
+                      right: 14,
+                      width: 10,
+                      height: 10,
+                      bgcolor: 'background.paper',
+                      transform: 'translateY(-50%) rotate(45deg)',
+                      zIndex: 0,
+                    },
+                  }
+                }
+              }}
             >
-              <MenuItem onClick={handleProfile}>
-                <AccountCircle sx={{ mr: 1 }} />
+              <MenuItem
+                onClick={handleProfile}
+                sx={{ py: 1.5 }}
+              >
+                <AccountCircle sx={{ mr: 1.5 }} />
                 Profile
               </MenuItem>
-              <MenuItem onClick={handleSettings}>
-                <Settings sx={{ mr: 1 }} />
+              <MenuItem
+                onClick={handleSettings}
+                sx={{ py: 1.5 }}
+              >
+                <Settings sx={{ mr: 1.5 }} />
                 Settings
               </MenuItem>
-              <Divider />
-              <MenuItem onClick={handleLogout}>
-                <Logout sx={{ mr: 1 }} />
+              <Divider sx={{ my: 0.5 }} />
+              <MenuItem
+                onClick={handleLogout}
+                sx={{
+                  py: 1.5,
+                  color: 'error.main',
+                  '&:hover': {
+                    backgroundColor: 'error.main',
+                    color: 'white',
+                  }
+                }}
+              >
+                <Logout sx={{ mr: 1.5 }} />
                 Logout
               </MenuItem>
             </Menu>

@@ -31,6 +31,9 @@ import {
   TableRow,
   Tabs,
   Tab,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
 } from '@mui/material';
 import {
   ArrowBack,
@@ -46,6 +49,8 @@ import {
   CheckCircle,
   Error,
   Refresh,
+  ExpandMore,
+  Code,
 } from '@mui/icons-material';
 import { format } from 'date-fns';
 import { useApi, ImputationJob, JobStatusUpdate, ResultFile, JobLog } from '../contexts/ApiContext';
@@ -746,6 +751,116 @@ const JobDetails: React.FC = () => {
                     </TableBody>
                   </Table>
                 </TableContainer>
+              </Box>
+            )}
+
+            {/* API Request & Response Accordion - Developer Details */}
+            {job && ['queued', 'running', 'completed', 'failed'].includes(job.status) && (
+              <Box sx={{ mt: 4 }}>
+                <Accordion defaultExpanded={false} sx={{ border: '1px solid', borderColor: 'divider' }}>
+                  <AccordionSummary
+                    expandIcon={<ExpandMore />}
+                    sx={{ bgcolor: 'grey.50' }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Code color="action" />
+                      <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                        API Request & Response Details
+                      </Typography>
+                    </Box>
+                  </AccordionSummary>
+                  <AccordionDetails sx={{ p: 3 }}>
+                    <Grid container spacing={3}>
+                      {/* Raw API Request */}
+                      <Grid item xs={12} md={6}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Info color="primary" fontSize="small" />
+                          Raw API Request
+                        </Typography>
+                        <Paper
+                          variant="outlined"
+                          sx={{
+                            bgcolor: '#1e1e1e',
+                            color: '#d4d4d4',
+                            p: 2,
+                            borderRadius: 1,
+                            maxHeight: '400px',
+                            overflowY: 'auto'
+                          }}
+                        >
+                          <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.875rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                            {JSON.stringify({
+                              endpoint: `${services.find(s => s.id === job.service_id)?.base_url || 'https://impute.afrigen-d.org'}/api/v2/jobs`,
+                              method: 'POST',
+                              headers: {
+                                'X-Auth-Token': '[REDACTED]',
+                                'Content-Type': 'multipart/form-data'
+                              },
+                              body: {
+                                refpanel: referencePanels.find(p => p.id === job.reference_panel_id)?.slug || job.reference_panel_id,
+                                build: job.build,
+                                phasing: job.phasing ? 'eagle' : 'no_phasing',
+                                population: job.population || 'mixed',
+                                mode: 'imputation',
+                                files: job.input_file_name
+                              }
+                            }, null, 2)}
+                          </pre>
+                        </Paper>
+                        {job.error_message && (
+                          <Alert severity="error" sx={{ mt: 2 }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                              Submission Error
+                            </Typography>
+                            <Typography variant="body2">
+                              {job.error_message}
+                            </Typography>
+                          </Alert>
+                        )}
+                      </Grid>
+
+                      {/* Raw API Response */}
+                      <Grid item xs={12} md={6}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <CheckCircle color="success" fontSize="small" />
+                          Raw API Response
+                        </Typography>
+                        <Paper
+                          variant="outlined"
+                          sx={{
+                            bgcolor: '#1e1e1e',
+                            color: '#d4d4d4',
+                            p: 2,
+                            borderRadius: 1,
+                            maxHeight: '400px',
+                            overflowY: 'auto'
+                          }}
+                        >
+                          <pre style={{ margin: 0, fontFamily: 'monospace', fontSize: '0.875rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                            {job.service_response && Object.keys(job.service_response).length > 0
+                              ? JSON.stringify(job.service_response, null, 2)
+                              : JSON.stringify({
+                                  status: 'No response',
+                                  message: 'Job failed before receiving API response',
+                                  external_job_id: job.external_job_id || null
+                                }, null, 2)
+                            }
+                          </pre>
+                        </Paper>
+                        {job.external_job_id && (
+                          <Alert severity="success" sx={{ mt: 2 }}>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                              External Job ID
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                              {job.external_job_id}
+                            </Typography>
+                          </Alert>
+                        )}
+                      </Grid>
+                    </Grid>
+                  </AccordionDetails>
+                </Accordion>
               </Box>
             )}
           </CardContent>

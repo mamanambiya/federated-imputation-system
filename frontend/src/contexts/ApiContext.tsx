@@ -70,17 +70,11 @@ export interface ReferencePanel {
 
 export interface ImputationJob {
   id: string;
+  user_id: number;
   name: string;
   description: string;
-  user: {
-    id: number;
-    username: string;
-    email: string;
-    first_name: string;
-    last_name: string;
-  };
-  service: ImputationService;
-  reference_panel: ReferencePanel;
+  service_id: number;
+  reference_panel_id: number;
   input_format: string;
   build: string;
   phasing: boolean;
@@ -88,13 +82,15 @@ export interface ImputationJob {
   status: 'pending' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
   progress_percentage: number;
   external_job_id: string;
+  input_file_name?: string;
+  input_file_size?: number;
   created_at: string;
   updated_at: string;
   started_at?: string;
   completed_at?: string;
-  duration_display?: string;
+  execution_time_seconds?: number;
   error_message?: string;
-  input_file_size_display?: string;
+  service_response?: any;
   status_updates?: JobStatusUpdate[];
   files?: ResultFile[];
 }
@@ -110,16 +106,20 @@ export interface JobStatusUpdate {
 
 export interface ResultFile {
   id: number;
-  file_type: 'imputed_data' | 'quality_report' | 'log_file' | 'summary' | 'metadata';
-  filename: string;
-  file_path: string;
-  download_url: string;
-  file_size: number;
-  file_size_display: string;
-  checksum: string;
-  is_available: boolean;
-  expires_at?: string;
+  name: string;
+  size: number;
+  type: 'input' | 'result';
   created_at: string;
+}
+
+export interface JobLog {
+  id: number;
+  job_id: string;
+  step_name: string;
+  step_index: number;
+  log_type: 'error' | 'warning' | 'info' | 'success';
+  message: string;
+  timestamp: string;
 }
 
 export interface DashboardStats {
@@ -178,11 +178,16 @@ interface ApiContextType {
   retryJob: (id: string) => Promise<{ message: string; task_id: string }>;
   getJobStatusUpdates: (id: string) => Promise<JobStatusUpdate[]>;
   getJobFiles: (id: string) => Promise<ResultFile[]>;
+  getJobLogs: (id: string) => Promise<JobLog[]>;
   downloadFile: (jobId: string, fileId: number) => Promise<{ download_url: string; filename: string; file_size: number }>;
 
   // Dashboard
   getDashboardStats: () => Promise<DashboardStats>;
   getServicesOverview: () => Promise<any[]>;
+
+  // Helper functions
+  formatDuration: (executionTimeSeconds?: number) => string;
+  formatFileSize: (bytes?: number) => string;
 }
 
 const ApiContext = createContext<ApiContextType | undefined>(undefined);
@@ -460,13 +465,39 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const getJobStatusUpdates = async (id: string): Promise<JobStatusUpdate[]> => {
-    const response: AxiosResponse<JobStatusUpdate[]> = await api.get(`/jobs/${id}/status_updates/`);
-    return response.data;
+    try {
+      // Backend uses hyphenated URL: /jobs/{id}/status-updates
+      const response: AxiosResponse<JobStatusUpdate[]> = await api.get(`/jobs/${id}/status-updates/`);
+      return response.data;
+    } catch (error) {
+      // Return empty array if no status updates exist yet (404 is expected for new jobs)
+      console.warn('No status updates available for job:', id);
+      return [];
+    }
   };
 
   const getJobFiles = async (id: string): Promise<ResultFile[]> => {
-    const response: AxiosResponse<ResultFile[]> = await api.get(`/jobs/${id}/files/`);
-    return response.data;
+    try {
+      // Backend endpoint: /jobs/{id}/files
+      const response: AxiosResponse<ResultFile[]> = await api.get(`/jobs/${id}/files/`);
+      return response.data;
+    } catch (error) {
+      // Return empty array if no files exist yet (404 is expected for jobs without files)
+      console.warn('No files available for job:', id);
+      return [];
+    }
+  };
+
+  const getJobLogs = async (id: string): Promise<JobLog[]> => {
+    try {
+      // Backend endpoint: /jobs/{id}/logs
+      const response: AxiosResponse<JobLog[]> = await api.get(`/jobs/${id}/logs/`);
+      return response.data;
+    } catch (error) {
+      // Return empty array if no logs exist yet (404 is expected for new/pending jobs)
+      console.warn('No execution logs available for job:', id);
+      return [];
+    }
   };
 
   const downloadFile = async (jobId: string, fileId: number): Promise<{ download_url: string; filename: string; file_size: number }> => {
@@ -483,6 +514,38 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const getServicesOverview = async (): Promise<any[]> => {
     const response = await api.get('/dashboard/services_overview/');
     return response.data;
+  };
+
+  // Helper functions for formatting display values
+  const formatDuration = (executionTimeSeconds?: number): string => {
+    if (!executionTimeSeconds) return 'N/A';
+
+    const hours = Math.floor(executionTimeSeconds / 3600);
+    const minutes = Math.floor((executionTimeSeconds % 3600) / 60);
+    const seconds = executionTimeSeconds % 60;
+
+    if (hours > 0) {
+      return `${hours}h ${minutes}m ${seconds}s`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${seconds}s`;
+    } else {
+      return `${seconds}s`;
+    }
+  };
+
+  const formatFileSize = (bytes?: number): string => {
+    if (!bytes || bytes === 0) return 'N/A';
+
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let size = bytes;
+    let unitIndex = 0;
+
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex++;
+    }
+
+    return `${size.toFixed(2)} ${units[unitIndex]}`;
   };
 
   const value: ApiContextType = {
@@ -505,9 +568,12 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     retryJob,
     getJobStatusUpdates,
     getJobFiles,
+    getJobLogs,
     downloadFile,
     getDashboardStats,
     getServicesOverview,
+    formatDuration,
+    formatFileSize,
   };
 
   return <ApiContext.Provider value={value}>{children}</ApiContext.Provider>;

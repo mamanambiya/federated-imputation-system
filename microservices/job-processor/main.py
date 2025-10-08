@@ -108,6 +108,7 @@ class ImputationJob(Base):
     
     # Relationships
     status_updates = relationship("JobStatusUpdate", back_populates="job")
+    logs = relationship("JobLog", back_populates="job", order_by="JobLog.step_index, JobLog.timestamp")
 
 class JobStatusUpdate(Base):
     __tablename__ = "job_status_updates"
@@ -123,14 +124,28 @@ class JobStatusUpdate(Base):
     # Relationships
     job = relationship("ImputationJob", back_populates="status_updates")
 
+class JobLog(Base):
+    __tablename__ = "job_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("imputation_jobs.id"), index=True)
+    step_name = Column(String(100), nullable=False)  # e.g., "Input Validation", "Quality Control"
+    step_index = Column(Integer, default=0)  # Order of steps
+    log_type = Column(String(20), default='info')  # error, warning, info, success
+    message = Column(Text, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+
+    # Relationships
+    job = relationship("ImputationJob", back_populates="logs")
+
 class JobTemplate(Base):
     __tablename__ = "job_templates"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(200), nullable=False)
     description = Column(Text)
     user_id = Column(Integer, nullable=False)
-    
+
     # Template configuration
     service_id = Column(Integer, nullable=False)
     reference_panel_id = Column(Integer, nullable=False)
@@ -138,7 +153,7 @@ class JobTemplate(Base):
     build = Column(String(20), default='hg38')
     phasing = Column(Boolean, default=True)
     population = Column(String(100))
-    
+
     # Metadata
     is_public = Column(Boolean, default=False)
     usage_count = Column(Integer, default=0)
@@ -217,6 +232,8 @@ class JobResponse(BaseModel):
     completed_at: Optional[datetime]
     execution_time_seconds: Optional[int]
     error_message: Optional[str]
+    service_response: Optional[Dict[str, Any]] = None
+    external_job_id: Optional[str] = None
 
 class JobStatusUpdateResponse(BaseModel):
     id: int
@@ -233,6 +250,15 @@ class JobFileResponse(BaseModel):
     size: int
     type: str  # 'input' or 'result'
     created_at: Optional[datetime] = None
+
+class JobLogResponse(BaseModel):
+    id: int
+    job_id: str
+    step_name: str
+    step_index: int
+    log_type: str
+    message: str
+    timestamp: datetime
 
 class JobTemplateCreate(BaseModel):
     name: str
@@ -387,6 +413,7 @@ async def create_job(
     build: str = Form('hg38'),
     phasing: bool = Form(True),
     population: str = Form(None),
+    user_token: str = Form(None),  # Optional user-provided API token for the service
     input_file: UploadFile = File(...),
     user_id: int = Depends(get_user_id_from_token),  # Extract user_id from JWT token
     db: Session = Depends(get_db)
@@ -440,6 +467,29 @@ async def create_job(
                 status_code=500,
                 detail="Failed to lookup reference panel"
             )
+
+    # Handle user_token: If provided, save it to service credentials
+    # This allows users to provide tokens directly during job submission
+    if user_token and user_token.strip():
+        async with httpx.AsyncClient() as client:
+            try:
+                # Save the token to user service credentials
+                save_response = await client.post(
+                    f"{USER_SERVICE_URL}/internal/users/{user_id}/service-credentials",
+                    json={
+                        "service_id": resolved_service_id,
+                        "credential_type": "api_token",
+                        "api_token": user_token,
+                        "label": "Token from job submission",
+                        "is_active": True
+                    }
+                )
+                save_response.raise_for_status()
+                logger.info(f"Saved API token for user {user_id}, service {resolved_service_id}")
+            except httpx.HTTPStatusError as e:
+                logger.warning(f"Failed to save user token: {e}. Job will proceed but may fail if service requires authentication.")
+            except Exception as e:
+                logger.warning(f"Error saving user token: {e}")
 
     # OPTIONAL: Validate user has credentials for the selected service
     # Note: This is currently set to warning-only mode for testing/development
@@ -673,6 +723,31 @@ async def get_job_status_updates(job_id: str, db: Session = Depends(get_db)):
             timestamp=update.timestamp
         )
         for update in updates
+    ]
+
+@app.get("/jobs/{job_id}/logs", response_model=List[JobLogResponse])
+async def get_job_logs(job_id: str, db: Session = Depends(get_db)):
+    """
+    Get execution logs for a job, grouped by processing steps.
+
+    Returns logs in chronological order, preserving the step structure
+    from the external imputation service (e.g., Michigan Imputation Server steps).
+    """
+    logs = db.query(JobLog).filter(
+        JobLog.job_id == job_id
+    ).order_by(JobLog.step_index, JobLog.timestamp).all()
+
+    return [
+        JobLogResponse(
+            id=log.id,
+            job_id=str(log.job_id),
+            step_name=log.step_name,
+            step_index=log.step_index,
+            log_type=log.log_type,
+            message=log.message,
+            timestamp=log.timestamp
+        )
+        for log in logs
     ]
 
 @app.get("/jobs/{job_id}/files", response_model=List[JobFileResponse])

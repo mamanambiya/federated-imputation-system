@@ -157,7 +157,7 @@ const Services: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterServiceType, setFilterServiceType] = useState<string[]>([]);
   const [filterApiType, setFilterApiType] = useState<string[]>([]);
-  const [filterHealthStatus, setFilterHealthStatus] = useState<string[]>([]);
+  const [filterHealthStatus, setFilterHealthStatus] = useState<string[]>([]); // Will be set to ['healthy'] after initial health check
   const [filterCountry, setFilterCountry] = useState<string[]>([]);
   const [filterContinent, setFilterContinent] = useState<string[]>([]);
   const [filterInstitution, setFilterInstitution] = useState<string[]>([]);
@@ -287,13 +287,12 @@ const Services: React.FC = () => {
     let matchesHealthStatus = true;
     if (filterHealthStatus.length > 0) {
       const healthStatus = serviceHealth[service.id];
-      if (filterHealthStatus.includes('healthy')) {
-        matchesHealthStatus = healthStatus === 'healthy';
-      } else if (filterHealthStatus.includes('unhealthy')) {
-        matchesHealthStatus = healthStatus === 'unhealthy';
-      } else if (filterHealthStatus.includes('unknown')) {
-        matchesHealthStatus = !healthStatus || healthStatus === 'checking' || healthStatus === 'unknown';
-      }
+      matchesHealthStatus = filterHealthStatus.some(status => {
+        if (status === 'healthy') return healthStatus === 'healthy';
+        if (status === 'unhealthy') return healthStatus === 'unhealthy';
+        if (status === 'unknown') return !healthStatus || healthStatus === 'checking' || healthStatus === 'unknown';
+        return false;
+      });
     }
 
     // Hierarchical location filtering
@@ -590,6 +589,12 @@ const Services: React.FC = () => {
     // Save health check results to cache
     setHealthCheckCache(healthStatus);
     console.log('Health check results saved to cache (valid for 5 minutes)');
+
+    // Set default filter to show only healthy services after first health check
+    if (filterHealthStatus.length === 0 && healthyCount > 0) {
+      setFilterHealthStatus(['healthy']);
+      console.log('Default filter set to show only healthy services');
+    }
 
     setOperationInProgress(null);
 

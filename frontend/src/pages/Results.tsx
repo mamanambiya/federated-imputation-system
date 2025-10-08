@@ -39,7 +39,7 @@ import { format } from 'date-fns';
 import { useApi, ResultFile } from '../contexts/ApiContext';
 
 const Results: React.FC = () => {
-  const { api } = useApi();
+  const { api, formatFileSize } = useApi();
   
   const [files, setFiles] = useState<ResultFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,12 +85,10 @@ const Results: React.FC = () => {
 
   const getFileTypeIcon = (fileType: string) => {
     switch (fileType) {
-      case 'imputed_data':
+      case 'input':
+        return <FileDownload color="action" />;
+      case 'result':
         return <Storage color="primary" />;
-      case 'quality_report':
-        return <Info color="info" />;
-      case 'log_file':
-        return <Error color="warning" />;
       default:
         return <FileDownload />;
     }
@@ -98,14 +96,10 @@ const Results: React.FC = () => {
 
   const getFileTypeColor = (fileType: string) => {
     switch (fileType) {
-      case 'imputed_data':
+      case 'input':
+        return 'default';
+      case 'result':
         return 'primary';
-      case 'quality_report':
-        return 'info';
-      case 'log_file':
-        return 'warning';
-      case 'summary':
-        return 'success';
       default:
         return 'default';
     }
@@ -113,14 +107,14 @@ const Results: React.FC = () => {
 
   // Filter files based on search and type
   const filteredFiles = files && Array.isArray(files) ? files.filter(file => {
-    const matchesSearch = !searchTerm || 
-      file.filename.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesType = !typeFilter || file.file_type === typeFilter;
-    
+    const matchesSearch = !searchTerm ||
+      file.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesType = !typeFilter || file.type === typeFilter;
+
     return matchesSearch && matchesType;
   }) : [];
 
-  const fileTypes = files && Array.isArray(files) ? [...new Set(files.map(file => file.file_type))] : [];
+  const fileTypes = files && Array.isArray(files) ? [...new Set(files.map(file => file.type))] : [];
 
   if (loading) {
     return (
@@ -229,28 +223,28 @@ const Results: React.FC = () => {
                 <TableRow key={file.id} hover>
                   <TableCell>
                     <Box display="flex" alignItems="center">
-                      {getFileTypeIcon(file.file_type)}
+                      {getFileTypeIcon(file.type)}
                       <Typography variant="body2" ml={1}>
-                        {file.filename}
+                        {file.name}
                       </Typography>
                     </Box>
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2">
-                      Job #{file.id} {/* This would need job name from API */}
+                      File #{file.id}
                     </Typography>
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={file.file_type.replace('_', ' ').toUpperCase()}
+                      label={file.type.toUpperCase()}
                       size="small"
-                      color={getFileTypeColor(file.file_type) as any}
+                      color={getFileTypeColor(file.type) as any}
                       variant="outlined"
                     />
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2">
-                      {file.file_size_display}
+                      {formatFileSize(file.size)}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -260,9 +254,9 @@ const Results: React.FC = () => {
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={file.is_available ? 'Available' : 'Unavailable'}
+                      label={file.type === 'result' ? 'Available' : 'Input File'}
                       size="small"
-                      color={file.is_available ? 'success' : 'error'}
+                      color={file.type === 'result' ? 'success' : 'default'}
                       variant="outlined"
                     />
                   </TableCell>
@@ -271,7 +265,7 @@ const Results: React.FC = () => {
                       <IconButton
                         size="small"
                         onClick={() => handleDownload(file)}
-                        disabled={!file.is_available}
+                        disabled={file.type === 'input'}
                       >
                         <Download />
                       </IconButton>
@@ -305,27 +299,27 @@ const Results: React.FC = () => {
               <Grid item xs={12} sm={6} md={3}>
                 <Paper sx={{ p: 2, textAlign: 'center' }}>
                   <Typography variant="h6">
-                    {files && Array.isArray(files) ? files.filter(f => f.is_available).length : 0}
+                    {files && Array.isArray(files) ? files.filter(f => f.type === 'result').length : 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Available
+                    Result Files
                   </Typography>
                 </Paper>
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
                 <Paper sx={{ p: 2, textAlign: 'center' }}>
                   <Typography variant="h6">
-                    {files && Array.isArray(files) ? files.filter(f => f.file_type === 'imputed_data').length : 0}
+                    {files && Array.isArray(files) ? files.filter(f => f.type === 'input').length : 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Imputed Data
+                    Input Files
                   </Typography>
                 </Paper>
               </Grid>
               <Grid item xs={12} sm={6} md={3}>
                 <Paper sx={{ p: 2, textAlign: 'center' }}>
                   <Typography variant="h6">
-                    {files && Array.isArray(files) ? files.filter(f => f.file_type === 'quality_report').length : 0}
+                    {files && Array.isArray(files) ? files.length : 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     Quality Reports
