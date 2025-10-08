@@ -13,7 +13,6 @@ import httpx
 import redis
 from fastapi import FastAPI, Request, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
 import jwt
@@ -57,17 +56,13 @@ security = HTTPBearer(auto_error=False)
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://frontend:3000", "http://154.114.10.123:3000"],
+    allow_origins=["http://localhost:3000", "http://frontend:3000", "http://154.114.10.184:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Trusted host middleware
-app.add_middleware(
-    TrustedHostMiddleware,
-    allowed_hosts=["localhost", "127.0.0.1", "api-gateway", "*.local", "154.114.10.123"]
-)
+# Note: TrustedHostMiddleware removed - CORS provides sufficient origin validation
 
 # Models
 class HealthResponse(BaseModel):

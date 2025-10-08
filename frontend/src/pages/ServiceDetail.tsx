@@ -1176,48 +1176,81 @@ const ServiceDetail: React.FC = () => {
                 </Alert>
               ) : (
                 <List>
-                  {panels.map((panel, index) => (
-                    <React.Fragment key={panel.id}>
-                      <ListItem>
-                        <ListItemIcon>
-                          <CheckCircle color="success" />
-                        </ListItemIcon>
-                        <ListItemText
-                          primary={
-                            <Box display="flex" alignItems="center" gap={1}>
-                              <Typography variant="subtitle1">
-                                {panel.display_name || panel.name}
-                              </Typography>
-                              {panel.panel_id && <Chip label={panel.panel_id} size="small" variant="outlined" />}
-                            </Box>
-                          }
-                          secondary={
-                            <Box>
-                              <Box display="flex" gap={2} mt={0.5}>
-                                <Typography variant="body2" component="span">
-                                  <strong>Population:</strong> {panel.population || 'Mixed'}
+                  {panels.map((panel, index) => {
+                    // Extract version from panel_id if it exists (e.g., "apps@h3africa-v6hc-s@1.0.0" -> "1.0.0")
+                    const versionMatch = panel.panel_id?.match(/@([\d.]+)$/);
+                    const version = versionMatch ? versionMatch[1] : null;
+
+                    return (
+                      <React.Fragment key={panel.id}>
+                        <ListItem>
+                          <ListItemIcon>
+                            <CheckCircle color="success" />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary={
+                              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
+                                <Typography variant="subtitle1">
+                                  {panel.display_name || panel.name}
                                 </Typography>
-                                <Typography variant="body2" component="span">
-                                  <strong>Build:</strong> {panel.build || 'hg38'}
-                                </Typography>
-                                {panel.samples_count && (
+                                {panel.panel_id && (
+                                  <Chip
+                                    label={panel.panel_id}
+                                    size="small"
+                                    variant="outlined"
+                                    color="primary"
+                                    sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}
+                                  />
+                                )}
+                                {version && (
+                                  <Chip
+                                    label={`v${version}`}
+                                    size="small"
+                                    color="info"
+                                  />
+                                )}
+                                {panel.is_active !== undefined && (
+                                  <Chip
+                                    label={panel.is_active ? 'Active' : 'Inactive'}
+                                    size="small"
+                                    color={panel.is_active ? 'success' : 'default'}
+                                  />
+                                )}
+                              </Box>
+                            }
+                            secondary={
+                              <Box>
+                                <Box display="flex" gap={2} mt={0.5} flexWrap="wrap">
                                   <Typography variant="body2" component="span">
-                                    <strong>Samples:</strong> {panel.samples_count.toLocaleString()}
+                                    <strong>Population:</strong> {panel.population || 'Mixed'}
+                                  </Typography>
+                                  <Typography variant="body2" component="span">
+                                    <strong>Build:</strong> {panel.build || 'hg38'}
+                                  </Typography>
+                                  {panel.samples_count && (
+                                    <Typography variant="body2" component="span">
+                                      <strong>Samples:</strong> {panel.samples_count.toLocaleString()}
+                                    </Typography>
+                                  )}
+                                  {panel.variants_count && (
+                                    <Typography variant="body2" component="span">
+                                      <strong>Variants:</strong> {panel.variants_count.toLocaleString()}
+                                    </Typography>
+                                  )}
+                                </Box>
+                                {panel.description && (
+                                  <Typography variant="body2" color="text.secondary" mt={0.5}>
+                                    {panel.description}
                                   </Typography>
                                 )}
                               </Box>
-                              {panel.description && (
-                                <Typography variant="body2" color="text.secondary" mt={0.5}>
-                                  {panel.description}
-                                </Typography>
-                              )}
-                            </Box>
-                          }
-                        />
-                      </ListItem>
-                      {index < panels.length - 1 && <Divider />}
-                    </React.Fragment>
-                  ))}
+                            }
+                          />
+                        </ListItem>
+                        {index < panels.length - 1 && <Divider />}
+                      </React.Fragment>
+                    );
+                  })}
                 </List>
               )}
             </CardContent>

@@ -118,7 +118,7 @@ class ExternalServiceClient:
                 panel_response.raise_for_status()
                 panel_info = panel_response.json()
 
-            panel_identifier = panel_info.get('name')  # Use panel name which should contain Cloudgene format
+            panel_identifier = panel_info.get('panel_id') or panel_info.get('name')  # Use panel_id (Cloudgene format), fallback to name
 
             logger.info(f"Michigan API: Using reference panel '{panel_identifier}' (from panel ID: {job_data['reference_panel']})")
 
