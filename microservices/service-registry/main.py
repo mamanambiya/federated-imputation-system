@@ -716,16 +716,18 @@ health_checker = ServiceHealthChecker()
 
 # Background task for periodic health checks
 async def periodic_health_check():
-    """Run health checks every 5 minutes."""
+    """Run health checks every 15 minutes."""
     while True:
         try:
             db = SessionLocal()
+            logger.info("Starting periodic health check...")
             await health_checker.check_all_services(db)
             db.close()
+            logger.info("Periodic health check completed successfully")
         except Exception as e:
             logger.error(f"Health check error: {e}")
-        
-        await asyncio.sleep(300)  # 5 minutes
+
+        await asyncio.sleep(900)  # 15 minutes (900 seconds)
 
 # Start background task
 @app.on_event("startup")
@@ -1097,6 +1099,29 @@ async def check_service_health_endpoint(
         error_message=health_result["error_message"],
         checked_at=service.last_health_check
     )
+
+@app.post("/services/force-health-check")
+async def force_health_check_all(db: Session = Depends(get_db)):
+    """
+    Force an immediate health check for all services.
+    This allows users to manually trigger health checks instead of waiting for the next scheduled check (15 min interval).
+    Health checks run in background and results are stored in database.
+    """
+    try:
+        # Run health checks asynchronously in background
+        asyncio.create_task(health_checker.check_all_services(db))
+
+        services_count = db.query(ImputationService).filter(ImputationService.is_active == True).count()
+
+        return {
+            "status": "initiated",
+            "message": f"Health check initiated for {services_count} active services. Results will be available shortly.",
+            "services_count": services_count,
+            "timestamp": datetime.utcnow()
+        }
+    except Exception as e:
+        logger.error(f"Error initiating force health check: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to initiate health check: {str(e)}")
 
 @app.patch("/services/{service_id}/location", response_model=ServiceResponse)
 async def update_service_location(

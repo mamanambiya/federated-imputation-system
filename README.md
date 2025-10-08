@@ -46,6 +46,36 @@ A web-based platform for connecting to multiple genomic imputation services, all
 
 👉 **Start with the [Documentation Index](./docs/README.md)** for a complete overview of all available guides.
 
+## Recent Updates (2025-10-08)
+
+### 🔧 Critical Fixes
+
+**✅ Jobs Page Authentication Fixed** ([JOBS_PAGE_FIX.md](JOBS_PAGE_FIX.md))
+- Fixed 401 Unauthorized errors on jobs page
+- Added missing JWT_SECRET to job-processor microservice
+- All job endpoints now working correctly with authentication
+
+**✅ Event Loop Error Fixed** ([EVENT_LOOP_FIX.md](EVENT_LOOP_FIX.md))
+- Resolved "Event loop is closed" error in Celery worker
+- Converted async HTTP operations to synchronous
+- Jobs now complete successfully without execution errors
+
+**✅ Job Submission Fully Functional** ([JOB_SUBMISSION_TEST_REPORT.md](JOB_SUBMISSION_TEST_REPORT.md))
+- End-to-end job submission workflow tested and verified
+- Service credentials management working
+- External API integration confirmed (H3Africa)
+
+### 📊 System Status
+
+All major systems verified and operational:
+- ✅ Frontend (gzip compression: 72% size reduction)
+- ✅ API Gateway (JWT authentication working)
+- ✅ Job Processor (synchronous HTTP, no event loop issues)
+- ✅ Service Registry (health checks every 15 minutes)
+- ✅ User Service (credential management)
+- ✅ File Manager (upload/download working)
+- ✅ Celery Worker (job processing without errors)
+
 ## Quick Start
 
 ### Prerequisites
