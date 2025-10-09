@@ -672,6 +672,91 @@ def send_notification(user_id: int, notification_type: str, title: str, message:
         response = client.post(f"{NOTIFICATION_URL}/notifications", json=payload)
         response.raise_for_status()
 
+def update_parent_job_status(parent_job_id: str):
+    """
+    Update parent job status based on child job statuses.
+
+    Rules:
+    - If all children are completed: parent = completed
+    - If any child is failed: parent = failed
+    - If any child is running: parent = running
+    - Otherwise: parent = queued
+    """
+    db = SessionLocal()
+    try:
+        # Get all child jobs
+        child_jobs = db.query(ImputationJob).filter(
+            ImputationJob.parent_job_id == parent_job_id
+        ).all()
+
+        if not child_jobs:
+            logger.warning(f"No child jobs found for parent {parent_job_id}")
+            return
+
+        # Count job statuses
+        total = len(child_jobs)
+        completed_count = sum(1 for job in child_jobs if job.status == 'completed')
+        failed_count = sum(1 for job in child_jobs if job.status == 'failed')
+        running_count = sum(1 for job in child_jobs if job.status == 'running')
+
+        # Calculate aggregate progress
+        total_progress = sum(job.progress_percentage for job in child_jobs)
+        avg_progress = total_progress // total if total > 0 else 0
+
+        # Determine parent status
+        if completed_count == total:
+            new_status = 'completed'
+            new_progress = 100
+        elif failed_count > 0:
+            new_status = 'failed'
+            new_progress = avg_progress
+        elif running_count > 0:
+            new_status = 'running'
+            new_progress = avg_progress
+        else:
+            new_status = 'queued'
+            new_progress = 0
+
+        # Update parent job
+        parent_job = db.query(ImputationJob).filter(
+            ImputationJob.id == parent_job_id
+        ).first()
+
+        if parent_job:
+            parent_job.status = new_status
+            parent_job.progress_percentage = new_progress
+            parent_job.updated_at = datetime.utcnow()
+
+            # Set timestamps
+            if new_status == 'running' and not parent_job.started_at:
+                parent_job.started_at = datetime.utcnow()
+            elif new_status in ['completed', 'failed']:
+                if not parent_job.completed_at:
+                    parent_job.completed_at = datetime.utcnow()
+                if parent_job.started_at:
+                    parent_job.execution_time_seconds = int(
+                        (parent_job.completed_at - parent_job.started_at).total_seconds()
+                    )
+
+            # Build status message
+            message = f"{completed_count}/{total} jobs completed"
+            if failed_count > 0:
+                message += f", {failed_count} failed"
+            if running_count > 0:
+                message += f", {running_count} running"
+
+            parent_job.error_message = message if new_status == 'failed' else None
+
+            db.commit()
+
+            logger.info(f"Updated parent job {parent_job_id}: status={new_status}, progress={new_progress}%")
+
+    except Exception as e:
+        logger.error(f"Failed to update parent job {parent_job_id}: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
 def update_job_status_sync(job_id: str, status: str, progress: int = None, message: str = None, error: str = None, service_response: Dict[str, Any] = None):
     """Update job status synchronously."""
     db = SessionLocal()
@@ -705,7 +790,18 @@ def update_job_status_sync(job_id: str, status: str, progress: int = None, messa
                 message=message
             )
             db.add(status_update)
+
+            # Store parent_job_id before commit (in case we need it after connection closes)
+            parent_job_id = str(job.parent_job_id) if job.parent_job_id else None
+
             db.commit()
+
+            # Update parent job status if this is a child job
+            if parent_job_id:
+                try:
+                    update_parent_job_status(parent_job_id)
+                except Exception as e:
+                    logger.error(f"Failed to update parent job status: {e}")
 
             # Send notification asynchronously in a background thread
             # Note: Using asyncio.run() instead of create_task() for Celery compatibility

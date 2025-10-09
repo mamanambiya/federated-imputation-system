@@ -74,8 +74,9 @@ class ImputationJob(Base):
     description = Column(Text)
     
     # Service configuration
-    service_id = Column(Integer, nullable=False)
-    reference_panel_id = Column(Integer, nullable=False)
+    service_id = Column(Integer, nullable=True)  # Nullable for parent jobs
+    reference_panel_id = Column(Integer, nullable=True)  # Nullable for parent jobs
+    parent_job_id = Column(UUID(as_uuid=True), index=True)  # For multi-service federated jobs
     
     # Job parameters
     input_format = Column(String(20), default='vcf')  # vcf, plink, bgen
@@ -216,8 +217,9 @@ class JobResponse(BaseModel):
     user_id: int
     name: str
     description: Optional[str]
-    service_id: int
-    reference_panel_id: int
+    service_id: Optional[int] = None  # Nullable for parent jobs
+    reference_panel_id: Optional[int] = None  # Nullable for parent jobs
+    parent_job_id: Optional[str] = None  # For child jobs in federated submissions
     status: str
     progress_percentage: int
     input_format: str
@@ -562,6 +564,7 @@ async def create_job(
         description=job.description,
         service_id=job.service_id,
         reference_panel_id=job.reference_panel_id,
+        parent_job_id=str(job.parent_job_id) if job.parent_job_id else None,
         status=job.status,
         progress_percentage=job.progress_percentage,
         input_format=job.input_format,
@@ -577,6 +580,161 @@ async def create_job(
         execution_time_seconds=job.execution_time_seconds,
         error_message=job.error_message
     )
+
+@app.post("/jobs/multi-service", response_model=Dict[str, Any])
+async def create_multi_service_job(
+    name: str = Form(...),
+    description: str = Form(None),
+    service_ids: str = Form(...),  # Comma-separated list of service IDs
+    reference_panel_ids: str = Form(...),  # Comma-separated list of panel IDs (one per service)
+    input_format: str = Form('vcf'),
+    build: str = Form('hg38'),
+    phasing: bool = Form(True),
+    population: str = Form(None),
+    user_token: str = Form(None),
+    input_file: UploadFile = File(...),
+    user_id: int = Depends(get_user_id_from_token),
+    db: Session = Depends(get_db)
+):
+    """
+    Create a federated job that submits to multiple services simultaneously.
+
+    Creates a parent job and child jobs for each service.
+
+    Parameters:
+    - service_ids: Comma-separated service IDs (e.g., "1,4" for H3Africa and ILIFU)
+    - reference_panel_ids: Comma-separated panel IDs matching service order (e.g., "37,39")
+    """
+
+    # Parse service IDs and panel IDs
+    service_id_list = [s.strip() for s in service_ids.split(',')]
+    panel_id_list = [p.strip() for p in reference_panel_ids.split(',')]
+
+    if len(service_id_list) != len(panel_id_list):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Number of service IDs ({len(service_id_list)}) must match number of panel IDs ({len(panel_id_list)})"
+        )
+
+    if len(service_id_list) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Multi-service submission requires at least 2 services. Use /jobs/ for single service."
+        )
+
+    # Create parent job (no service_id, acts as container)
+    parent_job = ImputationJob(
+        user_id=user_id,
+        name=f"{name} [PARENT]",
+        description=f"Federated job across {len(service_id_list)} services: {description or ''}",
+        service_id=None,  # Parent job has no specific service
+        reference_panel_id=None,
+        input_format=input_format,
+        build=build,
+        phasing=phasing,
+        population=population,
+        input_file_name=input_file.filename,
+        input_file_size=input_file.size if hasattr(input_file, 'size') else 0,
+        status=JobStatus.QUEUED
+    )
+
+    db.add(parent_job)
+    db.commit()
+    db.refresh(parent_job)
+
+    logger.info(f"Created parent job {parent_job.id} for multi-service submission")
+
+    # Upload file once to file manager
+    file_content = await input_file.read()
+    file_info = await service_comm.upload_file(file_content, input_file.filename, str(parent_job.id))
+
+    if file_info:
+        parent_job.input_file_id = file_info.get('id')
+        db.commit()
+
+    # Create child jobs for each service
+    child_jobs = []
+
+    for idx, (svc_id, panel_id) in enumerate(zip(service_id_list, panel_id_list), 1):
+        # Resolve service and panel IDs
+        async with httpx.AsyncClient() as client:
+            try:
+                service_response = await client.get(f"{SERVICE_REGISTRY_URL}/services/{svc_id}")
+                service_response.raise_for_status()
+                service_data = service_response.json()
+                resolved_service_id = service_data['id']
+                service_name = service_data['name']
+            except httpx.HTTPStatusError:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Service '{svc_id}' not found"
+                )
+
+        async with httpx.AsyncClient() as client:
+            try:
+                panels_response = await client.get(f"{SERVICE_REGISTRY_URL}/reference-panels")
+                panels_response.raise_for_status()
+                panels = panels_response.json()
+
+                resolved_panel = None
+                if panel_id.isdigit():
+                    resolved_panel = next((p for p in panels if p['id'] == int(panel_id)), None)
+                else:
+                    resolved_panel = next((p for p in panels if p['slug'] == panel_id), None)
+
+                if not resolved_panel:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Reference panel '{panel_id}' not found"
+                    )
+
+                resolved_panel_id = resolved_panel['id']
+            except httpx.HTTPStatusError:
+                raise HTTPException(status_code=500, detail="Failed to lookup reference panel")
+
+        # Create child job
+        child_job = ImputationJob(
+            user_id=user_id,
+            name=f"{name} [{service_name}]",
+            description=f"Child job {idx}/{len(service_id_list)} for service {service_name}",
+            service_id=resolved_service_id,
+            reference_panel_id=resolved_panel_id,
+            input_format=input_format,
+            build=build,
+            phasing=phasing,
+            population=population,
+            input_file_name=input_file.filename,
+            input_file_size=input_file.size if hasattr(input_file, 'size') else 0,
+            input_file_id=file_info.get('id') if file_info else None,
+            parent_job_id=parent_job.id,
+            status=JobStatus.QUEUED
+        )
+
+        db.add(child_job)
+        db.commit()
+        db.refresh(child_job)
+
+        # Queue child job for processing
+        celery_app.send_task('worker.process_job', args=[str(child_job.id)])
+
+        child_jobs.append({
+            "id": str(child_job.id),
+            "service_id": resolved_service_id,
+            "service_name": service_name,
+            "panel_id": resolved_panel_id,
+            "status": child_job.status
+        })
+
+        logger.info(f"Created child job {child_job.id} for service {service_name}")
+
+    return {
+        "parent_job_id": str(parent_job.id),
+        "parent_job_name": parent_job.name,
+        "total_services": len(child_jobs),
+        "child_jobs": child_jobs,
+        "status": "Jobs queued for processing",
+        "message": f"Successfully created {len(child_jobs)} child jobs across {len(child_jobs)} services"
+    }
 
 @app.get("/jobs", response_model=List[JobResponse])
 async def list_jobs(
@@ -605,6 +763,7 @@ async def list_jobs(
             description=job.description,
             service_id=job.service_id,
             reference_panel_id=job.reference_panel_id,
+            parent_job_id=str(job.parent_job_id) if job.parent_job_id else None,
             status=job.status,
             progress_percentage=job.progress_percentage,
             input_format=job.input_format,
@@ -670,6 +829,7 @@ async def get_job(job_id: str, db: Session = Depends(get_db)):
         description=job.description,
         service_id=job.service_id,
         reference_panel_id=job.reference_panel_id,
+        parent_job_id=str(job.parent_job_id) if job.parent_job_id else None,
         status=job.status,
         progress_percentage=job.progress_percentage,
         input_format=job.input_format,

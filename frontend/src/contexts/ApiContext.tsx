@@ -107,8 +107,13 @@ export interface JobStatusUpdate {
 export interface ResultFile {
   id: number;
   name: string;
+  filename?: string;  // External files use 'filename' instead of 'name'
+  file_path?: string;  // External URL for external files
   size: number;
-  type: 'input' | 'result';
+  file_size?: number;  // External files use 'file_size' instead of 'size'
+  type: 'input' | 'result' | 'output';
+  file_type?: string;  // External files use 'file_type' instead of 'type'
+  processing_status?: string;  // 'external' for external result files
   created_at: string;
 }
 
@@ -174,10 +179,25 @@ interface ApiContextType {
   getJobs: (status?: string, serviceId?: number, search?: string) => Promise<ImputationJob[]>;
   getJob: (id: string) => Promise<ImputationJob>;
   createJob: (data: FormData) => Promise<ImputationJob>;
+  createMultiServiceJob: (data: FormData) => Promise<{
+    parent_job_id: string;
+    parent_job_name: string;
+    total_services: number;
+    child_jobs: Array<{
+      id: string;
+      service_id: number;
+      service_name: string;
+      panel_id: number;
+      status: string;
+    }>;
+    status: string;
+    message: string;
+  }>;
   cancelJob: (id: string) => Promise<{ message: string; task_id: string }>;
   retryJob: (id: string) => Promise<{ message: string; task_id: string }>;
   getJobStatusUpdates: (id: string) => Promise<JobStatusUpdate[]>;
   getJobFiles: (id: string) => Promise<ResultFile[]>;
+  getExternalResultFiles: (jobId: string) => Promise<ResultFile[]>;  // Get external result files from file-manager
   getJobLogs: (id: string) => Promise<JobLog[]>;
   downloadFile: (jobId: string, fileId: number) => Promise<{ download_url: string; filename: string; file_size: number }>;
 
@@ -234,8 +254,9 @@ const createApiInstance = (): AxiosInstance => {
 
 // Create axios instance for service registry microservice
 const createServiceRegistryApi = (): AxiosInstance => {
-  // Use service registry direct port (8002) since it's not routed through gateway yet
-  const baseURL = process.env.REACT_APP_SERVICE_REGISTRY_URL || 'http://154.114.10.123:8002';
+  // Use API Gateway for service registry endpoints
+  const API_GATEWAY_URL = process.env.REACT_APP_API_BASE_URL || process.env.REACT_APP_API_URL || 'http://154.114.10.123:8000';
+  const baseURL = `${API_GATEWAY_URL}/api`;
 
   const instance = axios.create({
     baseURL,
@@ -454,6 +475,15 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return response.data;
   };
 
+  const createMultiServiceJob = async (data: FormData) => {
+    const response = await api.post('/jobs/multi-service', data, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  };
+
   const cancelJob = async (id: string): Promise<{ message: string; task_id: string }> => {
     const response = await api.post(`/jobs/${id}/cancel/`);
     return response.data;
@@ -484,6 +514,36 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch (error) {
       // Return empty array if no files exist yet (404 is expected for jobs without files)
       console.warn('No files available for job:', id);
+      return [];
+    }
+  };
+
+  const getExternalResultFiles = async (jobId: string): Promise<ResultFile[]> => {
+    try {
+      // Backend endpoint: /files/?job_id={id}&file_type=output
+      // This fetches external result files stored in the file-manager service
+      const response: AxiosResponse<ResultFile[]> = await api.get(`/files/`, {
+        params: {
+          job_id: jobId,
+          file_type: 'output'
+        }
+      });
+
+      // Normalize the response to match ResultFile interface
+      return response.data.map((file: any) => ({
+        id: file.id,
+        name: file.filename || file.name,
+        filename: file.filename,
+        file_path: file.file_path,
+        size: file.file_size || file.size,
+        file_size: file.file_size,
+        type: (file.file_type || file.type) as 'input' | 'result' | 'output',
+        file_type: file.file_type,
+        processing_status: file.processing_status,
+        created_at: file.created_at
+      }));
+    } catch (error) {
+      console.warn('No external result files available for job:', jobId);
       return [];
     }
   };
@@ -564,10 +624,12 @@ export const ApiProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     getJobs,
     getJob,
     createJob,
+    createMultiServiceJob,
     cancelJob,
     retryJob,
     getJobStatusUpdates,
     getJobFiles,
+    getExternalResultFiles,
     getJobLogs,
     downloadFile,
     getDashboardStats,

@@ -78,7 +78,7 @@ const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => {
 const JobDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getJob, getJobStatusUpdates, getJobFiles, getJobLogs, cancelJob, retryJob, downloadFile, getServices, getReferencePanels, formatDuration, formatFileSize } = useApi();
+  const { getJob, getJobStatusUpdates, getJobFiles, getExternalResultFiles, getJobLogs, cancelJob, retryJob, downloadFile, getServices, getReferencePanels, formatDuration, formatFileSize } = useApi();
 
   const [job, setJob] = useState<ImputationJob | null>(null);
   const [statusUpdates, setStatusUpdates] = useState<JobStatusUpdate[]>([]);
@@ -103,6 +103,22 @@ const JobDetails: React.FC = () => {
     }
   }, [id]);
 
+  // Auto-refresh for running jobs
+  useEffect(() => {
+    // Only auto-refresh if job is in a non-terminal state
+    if (!job || !['queued', 'running'].includes(job.status)) {
+      return;
+    }
+
+    // Poll every 10 seconds for status updates
+    const intervalId = setInterval(() => {
+      loadJobDetails();
+    }, 10000); // 10 seconds
+
+    // Cleanup interval on unmount or when job status changes
+    return () => clearInterval(intervalId);
+  }, [job?.status, id]);
+
   const loadJobDetails = async () => {
     if (!id) return;
 
@@ -110,24 +126,8 @@ const JobDetails: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      // Use Promise.allSettled for resilient loading
-      // Even if status updates or files fail, we can still show the job details
-      const results = await Promise.allSettled([
-        getJob(id),
-        getJobStatusUpdates(id),
-        getJobFiles(id),
-        getJobLogs(id),
-        getServices(),
-        getReferencePanels()
-      ]);
-
-      // Extract successful results
-      const jobData = results[0].status === 'fulfilled' ? results[0].value : null;
-      const statusData = results[1].status === 'fulfilled' ? results[1].value : [];
-      const filesData = results[2].status === 'fulfilled' ? results[2].value : [];
-      const logsData = results[3].status === 'fulfilled' ? results[3].value : [];
-      const servicesData = results[4].status === 'fulfilled' ? results[4].value : [];
-      const panelsData = results[5].status === 'fulfilled' ? results[5].value : [];
+      // First, fetch the job to determine its status
+      const jobData = await getJob(id);
 
       if (!jobData) {
         setError('Failed to load job data');
@@ -135,6 +135,25 @@ const JobDetails: React.FC = () => {
       }
 
       setJob(jobData);
+
+      // Use Promise.allSettled for resilient loading of additional data
+      // For completed jobs, fetch external result files from file-manager
+      // For other jobs, fetch input files from job-processor
+      const results = await Promise.allSettled([
+        getJobStatusUpdates(id),
+        jobData.status === 'completed' ? getExternalResultFiles(id) : getJobFiles(id),
+        getJobLogs(id),
+        getServices(),
+        getReferencePanels()
+      ]);
+
+      // Extract successful results
+      const statusData = results[0].status === 'fulfilled' ? results[0].value : [];
+      const filesData = results[1].status === 'fulfilled' ? results[1].value : [];
+      const logsData = results[2].status === 'fulfilled' ? results[2].value : [];
+      const servicesData = results[3].status === 'fulfilled' ? results[3].value : [];
+      const panelsData = results[4].status === 'fulfilled' ? results[4].value : [];
+
       setStatusUpdates(statusData);
       setResultFiles(filesData);
       setJobLogs(logsData);
@@ -186,13 +205,18 @@ const JobDetails: React.FC = () => {
 
   const handleDownload = async (file: ResultFile) => {
     if (!job) return;
-    
+
     try {
-      const result = await downloadFile(job.id, file.id);
-      
-      if (result.download_url) {
-        // Open external download URL
-        window.open(result.download_url, '_blank');
+      // For external files (from file-manager), use file_path directly
+      if (file.processing_status === 'external' && file.file_path) {
+        window.open(file.file_path, '_blank');
+      } else {
+        // For internal files, use the downloadFile API
+        const result = await downloadFile(job.id, file.id);
+
+        if (result.download_url) {
+          window.open(result.download_url, '_blank');
+        }
       }
     } catch (err) {
       console.error('Error downloading file:', err);
@@ -580,6 +604,7 @@ const JobDetails: React.FC = () => {
                       <TableCell>File</TableCell>
                       <TableCell>Type</TableCell>
                       <TableCell>Size</TableCell>
+                      <TableCell>Source</TableCell>
                       <TableCell>Created</TableCell>
                       <TableCell align="right">Actions</TableCell>
                     </TableRow>
@@ -608,16 +633,33 @@ const JobDetails: React.FC = () => {
                           </Typography>
                         </TableCell>
                         <TableCell>
+                          {file.processing_status === 'external' ? (
+                            <Chip
+                              label="External Server"
+                              size="small"
+                              color="primary"
+                              variant="outlined"
+                            />
+                          ) : (
+                            <Chip
+                              label="Platform"
+                              size="small"
+                              variant="outlined"
+                            />
+                          )}
+                        </TableCell>
+                        <TableCell>
                           <Typography variant="caption">
                             {format(new Date(file.created_at), 'MMM dd, HH:mm')}
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
-                          <Tooltip title="Download">
+                          <Tooltip title={file.processing_status === 'external' ? 'Download from external server' : 'Download'}>
                             <IconButton
                               size="small"
                               onClick={() => handleDownload(file)}
                               disabled={file.type === 'input'}
+                              color={file.processing_status === 'external' ? 'primary' : 'default'}
                             >
                               <Download />
                             </IconButton>

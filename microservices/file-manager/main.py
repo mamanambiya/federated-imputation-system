@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Response
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Response, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, BigInteger, Text
 from sqlalchemy.ext.declarative import declarative_base
@@ -127,6 +127,7 @@ class FileInfoResponse(BaseModel):
     uuid: str
     filename: str
     original_filename: str
+    file_path: Optional[str]  # Contains external URL for external files
     file_size: int
     file_type: str
     mime_type: Optional[str]
@@ -146,6 +147,27 @@ class FileDownloadResponse(BaseModel):
     filename: str
     file_size: int
     expires_at: datetime
+
+class ExternalLinkCreate(BaseModel):
+    job_id: str
+    user_id: int
+    filename: str
+    file_size: int
+    file_type: str = 'output'
+    external_url: str
+    file_hash: Optional[str] = None
+    description: Optional[str] = None
+
+class ExternalLinkResponse(BaseModel):
+    id: int
+    uuid: str
+    filename: str
+    file_size: int
+    file_type: str
+    external_url: str
+    job_id: str
+    user_id: int
+    created_at: datetime
 
 # Utility functions
 def calculate_checksums(file_path: str) -> tuple[str, str]:
@@ -285,6 +307,55 @@ async def upload_file(
         logger.error(f"File upload failed: {e}")
         raise HTTPException(status_code=500, detail="File upload failed")
 
+@app.post("/files/external-link", response_model=ExternalLinkResponse)
+async def create_external_link(
+    link_data: ExternalLinkCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Create a file record for an external download link (e.g., from Michigan API).
+    This doesn't store the actual file, just the metadata and URL.
+    """
+    try:
+        # Create database record with external URL in file_path
+        file_record = FileRecord(
+            filename=link_data.filename,
+            original_filename=link_data.filename,
+            file_path=link_data.external_url,  # Store external URL in file_path
+            file_size=link_data.file_size,
+            file_type=link_data.file_type,
+            mime_type='application/octet-stream',  # Generic for external files
+            checksum_sha256=link_data.file_hash or '',
+            user_id=link_data.user_id,
+            job_id=link_data.job_id,
+            is_available=True,
+            is_processed=True,
+            processing_status='external',
+            extra_metadata=f'{{"description": "{link_data.description or ""}", "external": true, "source": "michigan_api"}}'
+        )
+
+        db.add(file_record)
+        db.commit()
+        db.refresh(file_record)
+
+        logger.info(f"External link created: {link_data.filename} for job {link_data.job_id}")
+
+        return ExternalLinkResponse(
+            id=file_record.id,
+            uuid=str(file_record.uuid),
+            filename=file_record.filename,
+            file_size=file_record.file_size,
+            file_type=file_record.file_type,
+            external_url=link_data.external_url,
+            job_id=link_data.job_id,
+            user_id=link_data.user_id,
+            created_at=file_record.created_at
+        )
+
+    except Exception as e:
+        logger.error(f"External link creation failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create external link: {str(e)}")
+
 @app.get("/files/{file_id}", response_model=FileInfoResponse)
 async def get_file_info(file_id: int, db: Session = Depends(get_db)):
     """Get file information by ID."""
@@ -302,6 +373,7 @@ async def get_file_info(file_id: int, db: Session = Depends(get_db)):
         uuid=str(file_record.uuid),
         filename=file_record.filename,
         original_filename=file_record.original_filename,
+        file_path=file_record.file_path,
         file_size=file_record.file_size,
         file_type=file_record.file_type,
         mime_type=file_record.mime_type,
@@ -381,14 +453,17 @@ async def stream_file(file_id: int, user_id: int = 123, db: Session = Depends(ge
 
 @app.get("/files", response_model=List[FileInfoResponse])
 async def list_files(
+    request: Request,
     file_type: Optional[str] = None,
     job_id: Optional[str] = None,
-    user_id: int = 123,  # This would come from JWT token
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db)
 ):
     """List files for a user with optional filtering."""
+    # Get user_id from header set by API gateway
+    user_id = int(request.headers.get("X-User-ID", 123))
+
     query = db.query(FileRecord).filter(FileRecord.user_id == user_id)
     
     if file_type:
@@ -404,6 +479,7 @@ async def list_files(
             uuid=str(file_record.uuid),
             filename=file_record.filename,
             original_filename=file_record.original_filename,
+            file_path=file_record.file_path,
             file_size=file_record.file_size,
             file_type=file_record.file_type,
             mime_type=file_record.mime_type,
@@ -449,8 +525,15 @@ async def delete_file(file_id: int, user_id: int = 123, db: Session = Depends(ge
     return {"message": "File deleted successfully"}
 
 @app.get("/jobs/{job_id}/files", response_model=List[FileInfoResponse])
-async def get_job_files(job_id: str, user_id: int = 123, db: Session = Depends(get_db)):
+async def get_job_files(
+    job_id: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
     """Get all files associated with a job."""
+    # Get user_id from header set by API gateway
+    user_id = int(request.headers.get("X-User-ID", 123))
+
     files = db.query(FileRecord).filter(
         FileRecord.job_id == job_id,
         FileRecord.user_id == user_id
@@ -462,6 +545,7 @@ async def get_job_files(job_id: str, user_id: int = 123, db: Session = Depends(g
             uuid=str(file_record.uuid),
             filename=file_record.filename,
             original_filename=file_record.original_filename,
+            file_path=file_record.file_path,
             file_size=file_record.file_size,
             file_type=file_record.file_type,
             mime_type=file_record.mime_type,

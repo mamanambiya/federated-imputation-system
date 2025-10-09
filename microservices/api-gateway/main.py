@@ -163,7 +163,13 @@ class ServiceProxy:
         
         # Remove problematic headers that cause conflicts
         headers_to_remove = {'host', 'content-length', 'transfer-encoding'}
-        headers = {k: v for k, v in headers.items() if k.lower() not in headers_to_remove}
+        headers = {k: str(v) for k, v in headers.items() if k.lower() not in headers_to_remove}
+
+        # Remove authorization header if it's empty or just "Bearer "
+        auth_header = headers.get('authorization', '')
+        if auth_header and auth_header.strip() in ['', 'Bearer', 'Bearer ']:
+            del headers['authorization']
+            logger.warning(f"⚠️  Removed invalid authorization header: '{auth_header}'")
         
         try:
             # When files are present, use 'data' for form fields instead of 'json'
@@ -258,8 +264,8 @@ ROUTE_MAPPING = {
     "/api/groups/": "user-service",
     
     # Service Registry
-    "/api/services/": "service-registry",
-    "/api/reference-panels/": "service-registry",
+    "/api/services": "service-registry",
+    "/api/reference-panels": "service-registry",
     
     # Job Processing
     "/api/jobs/": "job-processor",
@@ -303,7 +309,10 @@ async def proxy_to_service(
     
     # Prepare request data
     headers = dict(request.headers)
-    
+
+    # DEBUG: Log authorization header
+    logger.warning(f"🔍 AUTH HEADER: {headers.get('authorization', 'NOT FOUND')}")
+
     # Add user context to headers if authenticated
     if user:
         headers["X-User-ID"] = str(user.get("user_id", ""))

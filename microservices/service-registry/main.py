@@ -520,8 +520,12 @@ class ServiceHealthChecker:
                 # Michigan Imputation Server - use /api/ endpoint
                 health_url = f"{base_url}/api/"
             elif service.api_type == 'ga4gh':
-                # GA4GH services have a service-info endpoint
-                health_url = f"{base_url}/service-info"
+                # GA4GH WES services use the standard WES service-info endpoint
+                if service.service_type == 'wes':
+                    health_url = f"{base_url}/ga4gh/wes/v1/service-info"
+                else:
+                    # Other GA4GH services (DRS, TES, etc.) may have different paths
+                    health_url = f"{base_url}/service-info"
             elif service.api_type == 'dnastack':
                 # DNAstack - check root URL
                 health_url = base_url

@@ -66,7 +66,7 @@ const steps = ['Upload File', 'Select Service & Panel', 'Configure Job', 'Review
 
 const NewJob: React.FC = () => {
   const navigate = useNavigate();
-  const { discoverServices, getServiceReferencePanels, createJob } = useApi();
+  const { discoverServices, getServiceReferencePanels, createJob, createMultiServiceJob } = useApi();
   
   // State
   const [activeStep, setActiveStep] = useState(0);
@@ -310,12 +310,40 @@ const NewJob: React.FC = () => {
       setSubmitting(true);
       setError(null);
 
-      const formData = new FormData();
-      // Submit a job for each selected service
-      const jobPromises = jobData.selectedServices.map(async (selectedService) => {
+      // Use multi-service endpoint if multiple services are selected
+      if (jobData.selectedServices.length > 1) {
         const formData = new FormData();
         formData.append('input_file', file);
-        formData.append('name', `${jobData.name} - ${selectedService.serviceName}`);
+        formData.append('name', jobData.name);
+        formData.append('description', jobData.description);
+
+        // Comma-separated service IDs and panel IDs
+        const serviceIds = jobData.selectedServices.map(s => s.serviceId).join(',');
+        const panelIds = jobData.selectedServices.map(s => s.panelId).join(',');
+
+        formData.append('service_ids', serviceIds);
+        formData.append('reference_panel_ids', panelIds);
+        formData.append('input_format', jobData.input_format);
+        formData.append('build', jobData.build);
+        formData.append('phasing', jobData.phasing.toString());
+        formData.append('population', jobData.population);
+
+        // Include the first service's token (if any) as the user token
+        // TODO: Support individual tokens per service in multi-service submission
+        if (jobData.selectedServices[0].userToken) {
+          formData.append('user_token', jobData.selectedServices[0].userToken);
+        }
+
+        const result = await createMultiServiceJob(formData);
+
+        // Navigate to the parent job's detail page
+        navigate(`/jobs/${result.parent_job_id}`);
+      } else if (jobData.selectedServices.length === 1) {
+        // Single service submission - use regular endpoint
+        const selectedService = jobData.selectedServices[0];
+        const formData = new FormData();
+        formData.append('input_file', file);
+        formData.append('name', jobData.name);
         formData.append('description', jobData.description);
         formData.append('service_id', selectedService.serviceId);
         formData.append('reference_panel_id', selectedService.panelId);
@@ -323,20 +351,13 @@ const NewJob: React.FC = () => {
         formData.append('build', jobData.build);
         formData.append('phasing', jobData.phasing.toString());
         formData.append('population', jobData.population);
-        
-        // Include user token if provided
+
         if (selectedService.userToken) {
           formData.append('user_token', selectedService.userToken);
         }
-        
-        return createJob(formData);
-      });
 
-      const results = await Promise.all(jobPromises);
-      
-      // Navigate to the first job's detail page
-      if (results.length > 0) {
-        navigate(`/jobs/${results[0].id}`);
+        const result = await createJob(formData);
+        navigate(`/jobs/${result.id}`);
       }
     } catch (err) {
       setError('Failed to submit job. Please try again.');
