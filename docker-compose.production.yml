@@ -1,0 +1,256 @@
+# Production Docker Compose Configuration
+# Updated: 2025-10-09
+# This file reflects the ACTUAL production configuration with fixes applied
+# Based on: Incident recovery and manual container analysis
+
+version: '3.8'
+
+services:
+  # ============================================================================
+  # INFRASTRUCTURE SERVICES
+  # ============================================================================
+
+  postgres:
+    image: postgres:15
+    container_name: federated-imputation-central_db_1
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: federated_imputation
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # Create multiple databases on startup
+      POSTGRES_MULTIPLE_DATABASES: user_management_db,service_registry_db,file_management_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/create-multiple-databases.sh:/docker-entrypoint-initdb.d/create-multiple-databases.sh
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d federated_imputation"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - default
+      - microservices-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: federated-imputation-central_redis_1
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - default
+      - microservices-network
+
+  # ============================================================================
+  # MICROSERVICES
+  # ============================================================================
+
+  api-gateway:
+    build:
+      context: ./microservices/api-gateway
+      dockerfile: Dockerfile
+    container_name: federated-imputation-central_api-gateway_1
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - USER_SERVICE_URL=http://user-service:8001
+      - SERVICE_REGISTRY_URL=http://service-registry:8002
+      - JOB_PROCESSOR_URL=http://job-processor:8003
+      - FILE_MANAGER_URL=http://file-manager:8004
+      - MONITORING_URL=http://monitoring:8006
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - microservices-network
+
+  user-service:
+    build:
+      context: ./microservices/user-service
+      dockerfile: Dockerfile
+    container_name: federated-imputation-central_user-service_1
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/user_management_db
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      - JWT_EXPIRATION_HOURS=24
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+      - microservices-network
+
+  service-registry:
+    build:
+      context: ./microservices/service-registry
+      dockerfile: Dockerfile
+    container_name: federated-imputation-central_service-registry_1
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/service_registry_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+      - microservices-network
+
+  job-processor:
+    build:
+      context: ./microservices/job-processor
+      dockerfile: Dockerfile
+    container_name: federated-imputation-central_job-processor_1
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      # IMPORTANT: Uses federated_imputation DB (not job_processing_db)
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/federated_imputation
+      - REDIS_URL=redis://redis:6379
+      - USER_SERVICE_URL=http://user-service:8001
+      - SERVICE_REGISTRY_URL=http://service-registry:8002
+      - FILE_MANAGER_URL=http://file-manager:8004
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+      - microservices-network
+
+  file-manager:
+    build:
+      context: ./microservices/file-manager
+      dockerfile: Dockerfile
+    container_name: federated-imputation-central_file-manager_1
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    environment:
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/file_management_db
+      - STORAGE_PATH=/app/uploads
+      - MAX_FILE_SIZE_MB=500
+    volumes:
+      - ./microservices/file-manager/uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+      - microservices-network
+
+  monitoring:
+    build:
+      context: ./microservices/monitoring
+      dockerfile: Dockerfile
+    container_name: federated-imputation-central_monitoring_1
+    restart: unless-stopped
+    ports:
+      - "8006:8006"
+    environment:
+      # IMPORTANT: Uses federated_imputation DB (not monitoring_db)
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/federated_imputation
+      - USER_SERVICE_URL=http://user-service:8001
+      - SERVICE_REGISTRY_URL=http://service-registry:8002
+      - JOB_PROCESSOR_URL=http://job-processor:8003
+      - FILE_MANAGER_URL=http://file-manager:8004
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - default
+      - microservices-network
+
+  # ============================================================================
+  # FRONTEND
+  # ============================================================================
+
+  frontend:
+    image: nginx:alpine
+    container_name: frontend-updated
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    volumes:
+      - ./frontend/build:/usr/share/nginx/html:ro
+      - ./frontend/nginx-react.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api-gateway
+    networks:
+      - microservices-network
+
+# ============================================================================
+# NETWORKS
+# ============================================================================
+
+networks:
+  default:
+    name: federated-imputation-central_default
+    driver: bridge
+  microservices-network:
+    name: federated-imputation-central_microservices-network
+    driver: bridge
+
+# ============================================================================
+# VOLUMES
+# ============================================================================
+
+volumes:
+  postgres_data:
+    name: federated-imputation-central_postgres_data
+  redis_data:
+    name: federated-imputation-central_redis_data

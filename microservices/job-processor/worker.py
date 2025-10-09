@@ -6,6 +6,7 @@ Handles asynchronous job execution and external service communication.
 import os
 import logging
 import time
+import json
 from datetime import datetime
 from typing import Dict, Any
 
@@ -111,8 +112,8 @@ class ExternalServiceClient:
             }
 
             # Fetch reference panel details to get Cloudgene app ID
-            # For Michigan API, we need the panel_id field which contains the Cloudgene format
-            # e.g., "apps@h3africa-v6hc-s@1.0.0" not the database ID
+            # For Michigan API, we need the slug field which contains the Cloudgene format
+            # e.g., "apps@h3africa-v6hc-s@1.0.0" not the database ID or display name
             with httpx.Client() as panel_client:
                 panel_response = panel_client.get(
                     f"{SERVICE_REGISTRY_URL}/panels/{job_data['reference_panel']}"
@@ -120,7 +121,7 @@ class ExternalServiceClient:
                 panel_response.raise_for_status()
                 panel_info = panel_response.json()
 
-            panel_identifier = panel_info.get('panel_id') or panel_info.get('name')  # Use panel_id (Cloudgene format), fallback to name
+            panel_identifier = panel_info.get('slug') or panel_info.get('name')  # Use slug (Cloudgene format), fallback to name
 
             logger.info(f"Michigan API: Using reference panel '{panel_identifier}' (from panel ID: {job_data['reference_panel']})")
 
@@ -321,9 +322,13 @@ class ExternalServiceClient:
 
             result = response.json()
 
+            # Log full response for debugging (only when job completes)
+            state_code = result.get('state', 0)
+            if state_code in [3, 4]:  # completed states
+                logger.info(f"Michigan API: Job {external_job_id} completed. Full response: {json.dumps(result, indent=2)}")
+
             # Michigan uses numeric state codes (not strings)
             # 1=waiting, 2=running, 3=success(exportable), 4=success(complete), 5=failed, 6=cancelled, 7=deleted
-            state_code = result.get('state', 0)
             status_mapping = {
                 1: 'queued',      # waiting
                 2: 'running',     # running
@@ -437,12 +442,12 @@ class ExternalServiceClient:
             'service_response': result
         }
 
-    def download_job_results(self, service_info: Dict[str, Any], external_job_id: str) -> bytes:
+    def download_job_results(self, service_info: Dict[str, Any], external_job_id: str, user_id: int = None, service_id: int = None) -> bytes:
         """Download results from external imputation service."""
         service_type = service_info.get('api_type', 'michigan')
 
         if service_type == 'michigan':
-            return self._download_michigan_results(service_info, external_job_id)
+            return self._download_michigan_results(service_info, external_job_id, user_id, service_id)
         elif service_type == 'ga4gh':
             return self._download_ga4gh_results(service_info, external_job_id)
         elif service_type == 'dnastack':
@@ -450,14 +455,27 @@ class ExternalServiceClient:
         else:
             raise ValueError(f"Unsupported service type: {service_type}")
 
-    def _download_michigan_results(self, service_info: Dict[str, Any], external_job_id: str) -> bytes:
+    def _download_michigan_results(self, service_info: Dict[str, Any], external_job_id: str, user_id: int = None, service_id: int = None) -> bytes:
         """Download results from Michigan Imputation Server."""
         try:
             base_url = service_info['base_url'].rstrip('/')
             results_url = f"{base_url}/api/v2/jobs/{external_job_id}/results"
 
-            # Get API token for authenticated download
-            api_token = service_info.get('api_config', {}).get('api_token')
+            # Get user's API token for authenticated download (same as job submission)
+            api_token = None
+            if user_id and service_id:
+                logger.info(f"Michigan API: Fetching credentials for user {user_id}, service {service_id}")
+                with httpx.Client() as user_client:
+                    cred_response = user_client.get(
+                        f"{USER_SERVICE_URL}/internal/users/{user_id}/service-credentials/{service_id}"
+                    )
+                    cred_response.raise_for_status()
+                    user_cred = cred_response.json()
+                    api_token = user_cred.get('api_token')
+
+            if not api_token:
+                logger.warning("Michigan API: No API token available, attempting download without authentication")
+
             headers = {'X-Auth-Token': api_token} if api_token else {}
 
             logger.info(f"Michigan API: Downloading results from {results_url}")
@@ -524,6 +542,100 @@ class ExternalServiceClient:
             logger.error(f"DNASTACK results download failed: {e}")
             raise
 
+    def extract_result_file_links(self, service_info: Dict[str, Any], service_response: Dict[str, Any], external_job_id: str) -> list:
+        """Extract result file download links from service response."""
+        service_type = service_info.get('api_type', 'michigan')
+
+        if service_type == 'michigan':
+            return self._extract_michigan_result_links(service_info, service_response, external_job_id)
+        elif service_type == 'ga4gh':
+            return self._extract_ga4gh_result_links(service_response)
+        elif service_type == 'dnastack':
+            return self._extract_dnastack_result_links(service_response)
+        else:
+            logger.warning(f"Unsupported service type for result extraction: {service_type}")
+            return []
+
+    def _extract_michigan_result_links(self, service_info: Dict[str, Any], service_response: Dict[str, Any], external_job_id: str) -> list:
+        """Extract result file links from Michigan API response."""
+        try:
+            base_url = service_info['base_url'].rstrip('/')
+            result_files = []
+
+            # Michigan API response structure: outputParams -> files
+            output_params = service_response.get('outputParams', [])
+
+            for param in output_params:
+                if param.get('download', False):  # Only include downloadable files
+                    files = param.get('files', [])
+                    description = param.get('description', 'Output Files')
+
+                    for file_info in files:
+                        # Michigan provides file paths in the 'path' field
+                        # Also check the 'tree' structure which contains download paths
+                        file_path = file_info.get('path', '')
+                        file_name = file_info.get('name', '')
+                        file_hash = file_info.get('hash', '')
+                        file_size_str = file_info.get('size', '0')
+
+                        # The download URL pattern for Michigan API
+                        # Based on the tree structure in the response, paths look like: /browse/{hash}/{file_path}
+                        # We'll construct the full download URL
+                        download_url = f"{base_url}/results/{external_job_id}/{file_path}"
+
+                        # Convert size string to bytes (e.g., "82 MB" -> bytes)
+                        file_size_bytes = self._parse_size_string(file_size_str)
+
+                        result_files.append({
+                            'name': file_name,
+                            'download_url': download_url,
+                            'hash': file_hash,
+                            'size': file_size_bytes,
+                            'description': description
+                        })
+
+                        logger.info(f"Michigan API: Extracted result file: {file_name} ({file_size_str})")
+
+            return result_files
+
+        except Exception as e:
+            logger.error(f"Failed to extract Michigan result links: {e}")
+            return []
+
+    def _parse_size_string(self, size_str: str) -> int:
+        """Parse size string like '82 MB', '1 KB' to bytes."""
+        try:
+            if not size_str or size_str == '0 bytes':
+                return 0
+
+            parts = size_str.strip().split()
+            if len(parts) != 2:
+                return 0
+
+            value = float(parts[0].replace(',', ''))
+            unit = parts[1].upper()
+
+            multipliers = {
+                'BYTES': 1,
+                'KB': 1024,
+                'MB': 1024 * 1024,
+                'GB': 1024 * 1024 * 1024
+            }
+
+            return int(value * multipliers.get(unit, 1))
+        except Exception:
+            return 0
+
+    def _extract_ga4gh_result_links(self, service_response: Dict[str, Any]) -> list:
+        """Extract result file links from GA4GH response."""
+        # TODO: Implement GA4GH result extraction
+        return []
+
+    def _extract_dnastack_result_links(self, service_response: Dict[str, Any]) -> list:
+        """Extract result file links from DNASTACK response."""
+        # TODO: Implement DNASTACK result extraction
+        return []
+
 # Service communication helpers
 def get_service_info(service_id: int) -> Dict[str, Any]:
     """Get service information from service registry."""
@@ -560,7 +672,7 @@ def send_notification(user_id: int, notification_type: str, title: str, message:
         response = client.post(f"{NOTIFICATION_URL}/notifications", json=payload)
         response.raise_for_status()
 
-def update_job_status_sync(job_id: str, status: str, progress: int = None, message: str = None, error: str = None):
+def update_job_status_sync(job_id: str, status: str, progress: int = None, message: str = None, error: str = None, service_response: Dict[str, Any] = None):
     """Update job status synchronously."""
     db = SessionLocal()
     try:
@@ -573,6 +685,8 @@ def update_job_status_sync(job_id: str, status: str, progress: int = None, messa
                 job.error_message = message if status == 'failed' else None
             if error:
                 job.error_message = error
+            if service_response is not None:
+                job.service_response = service_response
             job.updated_at = datetime.utcnow()
             
             if status == 'running' and not job.started_at:
@@ -685,45 +799,50 @@ def process_job(self, job_id: str):
             
             # Update local job status
             if external_status == 'completed':
-                # Download results from external service
+                # Extract result file links from external service response
                 try:
-                    logger.info(f"Job {job_id}: Downloading results from external service")
-                    results_data = client.download_job_results(service_info, job.external_job_id)
+                    logger.info(f"Job {job_id}: Extracting result file links from service response")
+                    result_files = client.extract_result_file_links(service_info, status_result.get('service_response', {}), job.external_job_id)
 
-                    # Upload results to file manager
-                    logger.info(f"Job {job_id}: Uploading results to file manager ({len(results_data)} bytes)")
-
-                    def upload_results():
-                        with httpx.Client(timeout=httpx.Timeout(connect=30.0, read=600.0, write=60.0, pool=30.0)) as fm_client:
-                            files = {'file': ('results.zip', results_data, 'application/zip')}
-                            data = {'job_id': str(job_id), 'file_type': 'output'}
-                            upload_response = fm_client.post(
-                                f"{FILE_MANAGER_URL}/files/upload",
-                                files=files,
-                                data=data
-                            )
-                            upload_response.raise_for_status()
-                            return upload_response.json()
-
-                    result_file_info = upload_results()
-
-                    # Note: results_file_id field doesn't exist in current schema
-                    # Results are tracked separately through file manager
-                    logger.info(f"Job {job_id}: Results file uploaded with ID {result_file_info.get('id')}")
+                    if result_files:
+                        logger.info(f"Job {job_id}: Found {len(result_files)} result files")
+                        # Store result file links in file manager
+                        for file_info in result_files:
+                            try:
+                                with httpx.Client() as fm_client:
+                                    response = fm_client.post(
+                                        f"{FILE_MANAGER_URL}/files/external-link",
+                                        json={
+                                            'job_id': str(job_id),
+                                            'user_id': job.user_id,
+                                            'filename': file_info['name'],
+                                            'file_size': file_info.get('size', 0),
+                                            'file_type': 'output',
+                                            'external_url': file_info['download_url'],
+                                            'file_hash': file_info.get('hash', ''),
+                                            'description': file_info.get('description', '')
+                                        }
+                                    )
+                                    if response.status_code == 200:
+                                        logger.info(f"Job {job_id}: Stored link for {file_info['name']}")
+                            except Exception as link_error:
+                                logger.warning(f"Job {job_id}: Failed to store link for {file_info['name']}: {link_error}")
+                    else:
+                        logger.warning(f"Job {job_id}: No result files found in service response")
 
                 except Exception as e:
-                    error_msg = f"Completed but failed to retrieve results: {str(e)}"
+                    error_msg = f"Completed but failed to extract result links: {str(e)}"
                     logger.error(f"Job {job_id}: {error_msg}")
-                    update_job_status_sync(job_id, 'failed', 100, error_msg)
-                    break
+                    # Don't fail the job - it completed successfully even if we couldn't extract links
+                    logger.warning(f"Job {job_id}: Marking as completed despite link extraction failure")
 
-                update_job_status_sync(job_id, 'completed', 100, "Job completed successfully")
+                update_job_status_sync(job_id, 'completed', 100, "Job completed successfully", service_response=status_result.get('service_response'))
                 break
             elif external_status == 'failed':
-                update_job_status_sync(job_id, 'failed', progress, f"Job failed: {message}")
+                update_job_status_sync(job_id, 'failed', progress, f"Job failed: {message}", service_response=status_result.get('service_response'))
                 break
             elif external_status == 'cancelled':
-                update_job_status_sync(job_id, 'cancelled', progress, "Job was cancelled")
+                update_job_status_sync(job_id, 'cancelled', progress, "Job was cancelled", service_response=status_result.get('service_response'))
                 break
             elif external_status in ['running', 'queued']:
                 # Calculate progress (10% for submission + 80% for processing + 10% for completion)
